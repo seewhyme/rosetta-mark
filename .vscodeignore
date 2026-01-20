@@ -19,8 +19,7 @@ pnpm-lock.yaml
 .prettierrc
 .prettierignore
 .husky/**
+out/**
+esbuild.js
+.rosetta-mark/**
 node_modules/**
-!node_modules/@ai-sdk/**
-!node_modules/ai/**
-!node_modules/unified/**
-!node_modules/remark-*/**
