@@ -30,6 +30,7 @@ export interface ParagraphMapping {
 export interface TranslationMetadata {
   sourceHash: string;             // 原文件整体 hash
   sourcePath: string;             // 原文件相对路径
+  configSignature?: string;       // 翻译配置签名
   sourceLanguage?: string;        // 检测到的原文语言
   paragraphs: ParagraphMapping[]; // 段落对应关系
   detectedAt?: number;            // 语言检测时间戳

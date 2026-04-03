@@ -35,6 +35,11 @@ export class FileSystemManager {
     return crypto.createHash('md5').update(content).digest('hex');
   }
 
+  private getCacheKey(sourcePath: string, configSignature: string): string {
+    const relativePath = path.relative(this.workspaceRoot, sourcePath);
+    return `${configSignature}:${relativePath}`;
+  }
+
   private async readMetadata(): Promise<FileMetadata> {
     try {
       const data = await fs.readFile(this.metadataPath, 'utf-8');
@@ -75,9 +80,9 @@ export class FileSystemManager {
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
   }
 
-  getTranslationPath(sourcePath: string): string {
+  getTranslationPath(sourcePath: string, configSignature: string = 'default'): string {
     const relativePath = path.relative(this.workspaceRoot, sourcePath);
-    return path.join(this.translationDir, relativePath);
+    return path.join(this.translationDir, configSignature, relativePath);
   }
 
   /**
@@ -107,23 +112,32 @@ export class FileSystemManager {
     return this.translationDir;
   }
 
-  async needsTranslation(sourcePath: string, content: string): Promise<boolean> {
+  async needsTranslation(
+    sourcePath: string,
+    content: string,
+    configSignature: string = 'default'
+  ): Promise<boolean> {
     const hash = this.calculateHash(content);
     const metadata = await this.readMetadata();
-    const relativePath = path.relative(this.workspaceRoot, sourcePath);
+    const cacheKey = this.getCacheKey(sourcePath, configSignature);
 
-    const translationPath = this.getTranslationPath(sourcePath);
+    const translationPath = this.getTranslationPath(sourcePath, configSignature);
     const translationExists = await fs.access(translationPath).then(() => true).catch(() => false);
 
     if (!translationExists) {
       return true;
     }
 
-    return metadata[relativePath] !== hash;
+    return metadata[cacheKey] !== hash;
   }
 
-  async saveTranslation(sourcePath: string, content: string, translatedContent: string): Promise<string> {
-    const translationPath = this.getTranslationPath(sourcePath);
+  async saveTranslation(
+    sourcePath: string,
+    content: string,
+    translatedContent: string,
+    configSignature: string = 'default'
+  ): Promise<string> {
+    const translationPath = this.getTranslationPath(sourcePath, configSignature);
     const translationDir = path.dirname(translationPath);
 
     await this.ensureDir(translationDir);
@@ -131,8 +145,8 @@ export class FileSystemManager {
 
     const hash = this.calculateHash(content);
     const metadata = await this.readMetadata();
-    const relativePath = path.relative(this.workspaceRoot, sourcePath);
-    metadata[relativePath] = hash;
+    const cacheKey = this.getCacheKey(sourcePath, configSignature);
+    metadata[cacheKey] = hash;
     await this.writeMetadata(metadata);
 
     return translationPath;
@@ -146,9 +160,10 @@ export class FileSystemManager {
     content: string,
     translatedContent: string,
     paragraphs: ParagraphMapping[],
-    sourceLanguage?: string
+    sourceLanguage?: string,
+    configSignature: string = 'default'
   ): Promise<string> {
-    const translationPath = this.getTranslationPath(sourcePath);
+    const translationPath = this.getTranslationPath(sourcePath, configSignature);
     const translationDir = path.dirname(translationPath);
 
     await this.ensureDir(translationDir);
@@ -157,12 +172,14 @@ export class FileSystemManager {
     const hash = this.calculateHash(content);
     const extended = await this.readExtendedMetadata();
     const relativePath = path.relative(this.workspaceRoot, sourcePath);
+    const cacheKey = this.getCacheKey(sourcePath, configSignature);
     const relativeTranslationPath = path.relative(this.translationDir, translationPath);
 
-    extended.hashes[relativePath] = hash;
+    extended.hashes[cacheKey] = hash;
     extended.translations[relativeTranslationPath] = {
       sourceHash: hash,
       sourcePath: relativePath,
+      configSignature,
       sourceLanguage,
       paragraphs
     };
@@ -201,8 +218,11 @@ export class FileSystemManager {
     }
   }
 
-  async getExistingTranslation(sourcePath: string): Promise<string | null> {
-    const translationPath = this.getTranslationPath(sourcePath);
+  async getExistingTranslation(
+    sourcePath: string,
+    configSignature: string = 'default'
+  ): Promise<string | null> {
+    const translationPath = this.getTranslationPath(sourcePath, configSignature);
     try {
       return await fs.readFile(translationPath, 'utf-8');
     } catch {

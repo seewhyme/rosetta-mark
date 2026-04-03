@@ -1,7 +1,6 @@
 {
   "rosettaMark.translate.title": "翻译 Markdown",
   "rosettaMark.setApiKey.title": "设置 API 密钥",
-  "rosettaMark.reverseTranslate.title": "反向翻译到源文件",
   "rosettaMark.batchTranslate.title": "批量翻译",
   "rosettaMark.translateSelection.title": "翻译选中内容",
   "rosettaMark.cancelTranslation.title": "取消翻译",

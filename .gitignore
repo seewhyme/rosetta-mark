@@ -53,6 +53,7 @@ coverage
 *.tmp
 *.temp
 .cache
+.worktrees
 
 # Build artifacts
 build

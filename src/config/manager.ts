@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import { TranslationConfig, ProviderType, ConfigScope, GlossaryEntry } from '../types';
 
 export class ConfigManager {
@@ -14,13 +15,7 @@ export class ConfigManager {
   }
 
   async getConfig(): Promise<TranslationConfig> {
-    const config = vscode.workspace.getConfiguration('rosettaMark');
-    const provider = this.getConfigValue<ProviderType>(config, 'provider', 'openai');
-    const model = this.getConfigValue<string>(config, 'model', 'gpt-4o-mini');
-    const baseUrl = this.getConfigValue<string>(config, 'baseUrl', '');
-    const targetLanguage = this.getConfigValue<string>(config, 'targetLanguage', 'zh-CN');
-    const maxConcurrency = this.getConfigValue<number>(config, 'maxConcurrency', 3);
-    const glossary = this.getConfigValue<GlossaryEntry[]>(config, 'glossary', []);
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } = this.getTranslationSettings();
 
     const apiKey = await this.getApiKey();
     if (!apiKey) {
@@ -39,13 +34,7 @@ export class ConfigManager {
   }
 
   async getConfigWithApiKey(apiKey: string): Promise<TranslationConfig> {
-    const config = vscode.workspace.getConfiguration('rosettaMark');
-    const provider = this.getConfigValue<ProviderType>(config, 'provider', 'openai');
-    const model = this.getConfigValue<string>(config, 'model', 'gpt-4o-mini');
-    const baseUrl = this.getConfigValue<string>(config, 'baseUrl', '');
-    const targetLanguage = this.getConfigValue<string>(config, 'targetLanguage', 'zh-CN');
-    const maxConcurrency = this.getConfigValue<number>(config, 'maxConcurrency', 3);
-    const glossary = this.getConfigValue<GlossaryEntry[]>(config, 'glossary', []);
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } = this.getTranslationSettings();
 
     return {
       provider,
@@ -58,10 +47,66 @@ export class ConfigManager {
     };
   }
 
+  getTranslationSettings(): {
+    provider: ProviderType;
+    model: string;
+    baseUrl: string;
+    targetLanguage: string;
+    maxConcurrency: number;
+    glossary: GlossaryEntry[];
+  } {
+    const config = vscode.workspace.getConfiguration('rosettaMark');
+    const provider = this.getConfigValue<ProviderType>(config, 'provider', 'openai');
+    const model = this.getConfigValue<string>(config, 'model', 'gpt-4o-mini');
+    const baseUrl = this.getConfigValue<string>(config, 'baseUrl', '');
+    const targetLanguage = this.getConfigValue<string>(config, 'targetLanguage', 'zh-CN');
+    const maxConcurrency = this.getConfigValue<number>(config, 'maxConcurrency', 3);
+    const glossary = this.getConfigValue<GlossaryEntry[]>(config, 'glossary', []);
+    return {
+      provider,
+      model,
+      baseUrl,
+      targetLanguage,
+      maxConcurrency,
+      glossary,
+    };
+  }
+
+  getConfigSignature(): string {
+    const settings = this.getTranslationSettings();
+    const normalizedGlossary = [...settings.glossary]
+      .map(entry => ({
+        source: entry.source,
+        target: entry.target,
+        caseSensitive: entry.caseSensitive ?? false,
+      }))
+      .sort((a, b) => {
+        if (a.source !== b.source) {
+          return a.source.localeCompare(b.source);
+        }
+        if (a.target !== b.target) {
+          return a.target.localeCompare(b.target);
+        }
+        return Number(a.caseSensitive) - Number(b.caseSensitive);
+      });
+
+    const payload = JSON.stringify({
+      provider: settings.provider,
+      model: settings.model,
+      baseUrl: settings.baseUrl || '',
+      targetLanguage: settings.targetLanguage,
+      glossary: normalizedGlossary,
+    });
+
+    return crypto.createHash('md5').update(payload).digest('hex');
+  }
+
   async getApiKey(): Promise<string | undefined> {
     // Check workspace-level first
     let apiKey = await this.context.secrets.get('rosettaMark.apiKey.workspace');
-    if (apiKey) return apiKey;
+    if (apiKey) {
+      return apiKey;
+    }
 
     // Fallback to global
     apiKey = await this.context.secrets.get('rosettaMark.apiKey.global');

@@ -41,12 +41,6 @@
         "category": "Rosetta Mark"
       },
       {
-        "command": "rosettaMark.reverseTranslate",
-        "title": "Reverse Translate to Source",
-        "category": "Rosetta Mark",
-        "icon": "$(reply)"
-      },
-      {
         "command": "rosettaMark.batchTranslate",
         "title": "Batch Translate",
         "category": "Rosetta Mark",
@@ -88,11 +82,6 @@
         {
           "command": "rosettaMark.translate",
           "when": "resourceLangId == markdown && !resourcePath =~ /\\.rosetta-mark/",
-          "group": "navigation"
-        },
-        {
-          "command": "rosettaMark.reverseTranslate",
-          "when": "resourceLangId == markdown && resourcePath =~ /\\.rosetta-mark/",
           "group": "navigation"
         }
       ],

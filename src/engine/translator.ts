@@ -1,12 +1,10 @@
-import { AIService, TranslateOptions } from '../ai/service';
+import { AIService } from '../ai/service';
 import { MarkdownParser, ParsedParagraph } from './parser';
 import {
   TranslationConfig,
   TranslationResult,
   ParagraphMapping,
   IncrementalTranslationResult,
-  TranslationError,
-  TranslationErrorCode,
   TranslationProgress
 } from '../types';
 
@@ -14,13 +12,6 @@ export interface TranslationWithMapping {
   result: TranslationResult;
   paragraphs: ParagraphMapping[];
   sourceLanguage?: string;
-}
-
-export interface ReverseTranslationResult {
-  modifiedIndices: number[];
-  translatedParagraphs: { index: number; content: string }[];
-  newSourceContent: string;
-  newParagraphs: ParagraphMapping[];
 }
 
 export interface IncrementalTranslateOptions {
@@ -117,7 +108,7 @@ export class TranslationEngine {
     }
 
     const reusedCount = totalParagraphs - paragraphsToTranslate.length;
-    let totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
+    const totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
     onProgress?.({
       current: reusedCount,
@@ -237,99 +228,6 @@ export class TranslationEngine {
       existingParagraphs,
       maxConcurrency: this.config.maxConcurrency,
     });
-  }
-
-  /**
-   * 反向翻译：检测修改的段落并翻译回原文语言
-   */
-  async reverseTranslate(
-    currentTranslatedContent: string,
-    savedParagraphs: ParagraphMapping[],
-    sourceLanguage: string,
-    onProgress?: (message: string) => void,
-    signal?: AbortSignal
-  ): Promise<ReverseTranslationResult> {
-    // 拆分当前译文为段落
-    const currentParagraphs = this.parser.splitIntoParagraphs(currentTranslatedContent);
-
-    // 找出修改的段落
-    const modifiedIndices: number[] = [];
-    for (let i = 0; i < currentParagraphs.length; i++) {
-      const savedParagraph = savedParagraphs[i];
-      if (!savedParagraph || currentParagraphs[i] !== savedParagraph.translatedContent) {
-        modifiedIndices.push(i);
-      }
-    }
-
-    if (modifiedIndices.length === 0) {
-      // 没有修改
-      const sourceParagraphContents = savedParagraphs.map(p => p.sourceContent);
-      return {
-        modifiedIndices: [],
-        translatedParagraphs: [],
-        newSourceContent: this.parser.joinParagraphs(sourceParagraphContents),
-        newParagraphs: savedParagraphs,
-      };
-    }
-
-    // 并行翻译修改的段落
-    const paragraphsToTranslate = modifiedIndices.map(i => currentParagraphs[i]);
-    const translatedParagraphs: { index: number; content: string }[] = [];
-
-    const results = await this.aiService.translateParagraphs(paragraphsToTranslate, {
-      signal,
-      maxConcurrency: this.config.maxConcurrency || 3,
-      onParagraphProgress: (current, total) => {
-        onProgress?.(`Translating paragraph ${current}/${total}...`);
-      },
-    });
-
-    for (let i = 0; i < modifiedIndices.length; i++) {
-      translatedParagraphs.push({
-        index: modifiedIndices[i],
-        content: results[i].translatedText,
-      });
-    }
-
-    // 构建新的原文内容和段落映射
-    const newParagraphs: ParagraphMapping[] = savedParagraphs.map(p => ({
-      ...p,
-      sourceHash: p.sourceHash || this.parser.calculateHash(p.sourceContent),
-    }));
-    const sourceParagraphContents: string[] = savedParagraphs.map(p => p.sourceContent);
-
-    for (const { index, content } of translatedParagraphs) {
-      // 更新原文段落
-      if (index < sourceParagraphContents.length) {
-        sourceParagraphContents[index] = content;
-      } else {
-        sourceParagraphContents.push(content);
-      }
-
-      // 更新段落映射
-      if (index < newParagraphs.length) {
-        newParagraphs[index] = {
-          sourceContent: content,
-          translatedContent: currentParagraphs[index],
-          sourceHash: this.parser.calculateHash(content),
-        };
-      } else {
-        newParagraphs.push({
-          sourceContent: content,
-          translatedContent: currentParagraphs[index],
-          sourceHash: this.parser.calculateHash(content),
-        });
-      }
-    }
-
-    const newSourceContent = this.parser.joinParagraphs(sourceParagraphContents);
-
-    return {
-      modifiedIndices,
-      translatedParagraphs,
-      newSourceContent,
-      newParagraphs,
-    };
   }
 
   /**

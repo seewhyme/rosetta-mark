@@ -18,6 +18,13 @@ export interface TranslateOptions {
   onProgress?: (chunk: string) => void;
   signal?: AbortSignal;
   glossary?: GlossaryEntry[];
+  systemPrompt?: string;
+}
+
+interface TokenUsageLike {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 export class AIService {
@@ -78,14 +85,11 @@ export class AIService {
   private buildSystemPrompt(targetLanguage: string, glossary?: GlossaryEntry[]): string {
     let prompt = `You are a professional technical translator. Translate the markdown content to ${targetLanguage}.
 
-CRITICAL RULES:
-1. DO NOT translate code blocks (content within \`\`\` fences)
-2. DO NOT translate inline code (content within single backticks)
-3. DO NOT translate frontmatter keys (YAML keys in the header)
-4. DO NOT translate HTML attributes
-5. DO NOT add any explanations or extra content
-6. Maintain original formatting strictly (line breaks, indentation, lists, headers)
-7. Only output the translated markdown, nothing else
+RULES:
+1. Preserve Markdown structure, spacing, line breaks, lists, headings, and tables.
+2. Keep code snippets, placeholders, and inline literals unchanged.
+3. Do not add explanations or extra content.
+4. Output only the translated Markdown.
 
 Your goal is to provide a clean, accurate translation that preserves all technical elements and formatting.`;
 
@@ -110,12 +114,34 @@ Your goal is to provide a clean, accurate translation that preserves all technic
     ];
   }
 
-  private convertTokenUsage(usage: any) {
-    return usage ? {
+  private buildBatchSystemPrompt(targetLanguage: string, glossary?: GlossaryEntry[]): string {
+    return `${this.buildSystemPrompt(targetLanguage, glossary)}
+
+When the input contains <segment id="N"> ... </segment> blocks:
+- translate only the content inside each segment
+- keep every segment tag and id unchanged
+- preserve segment order
+- return all segments in the same format`;
+  }
+
+  private estimateTokens(content: string): number {
+    return Math.ceil(content.length / 4);
+  }
+
+  private convertTokenUsage(usage?: TokenUsageLike) {
+    if (
+      usage?.promptTokens === undefined ||
+      usage.completionTokens === undefined ||
+      usage.totalTokens === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
       prompt: usage.promptTokens,
       completion: usage.completionTokens,
       total: usage.totalTokens,
-    } : undefined;
+    };
   }
 
   private classifyError(error: unknown): TranslationError {
@@ -215,9 +241,9 @@ Your goal is to provide a clean, accurate translation that preserves all technic
   }
 
   async translate(content: string, options?: TranslateOptions): Promise<TranslationResult> {
-    const { onProgress, signal, glossary } = options || {};
+    const { onProgress, signal, glossary, systemPrompt: systemPromptOverride } = options || {};
     const model = this.getProvider();
-    const systemPrompt = this.getSystemPrompt(glossary || this.config.glossary);
+    const systemPrompt = systemPromptOverride || this.getSystemPrompt(glossary || this.config.glossary);
 
     return this.withRetry(async () => {
       if (onProgress) {
@@ -355,13 +381,62 @@ Your goal is to provide a clean, accurate translation that preserves all technic
     options?: TranslateOptions & {
       maxConcurrency?: number;
       onParagraphProgress?: (index: number, total: number) => void;
+      maxBatchTokens?: number;
     }
   ): Promise<TranslationResult[]> {
-    const { signal, maxConcurrency = 3, onParagraphProgress } = options || {};
+    const { signal, maxConcurrency = 3, onParagraphProgress, maxBatchTokens = 1200 } = options || {};
     const results: TranslationResult[] = new Array(paragraphs.length);
 
-    // Process in batches for concurrency control
-    for (let i = 0; i < paragraphs.length; i += maxConcurrency) {
+    const translateGroup = async (
+      groupedParagraphs: string[],
+      startIndex: number
+    ): Promise<Array<{ index: number; result: TranslationResult }>> => {
+      if (groupedParagraphs.length === 1) {
+        const result = await this.translate(groupedParagraphs[0], {
+          signal,
+          glossary: options?.glossary,
+        });
+        onParagraphProgress?.(startIndex + 1, paragraphs.length);
+        return [{ index: startIndex, result }];
+      }
+
+      const taggedContent = groupedParagraphs
+        .map((item, offset) => `<segment id="${startIndex + offset}">\n${item}\n</segment>`)
+        .join('\n\n');
+
+      const batchResult = await this.translate(taggedContent, {
+        signal,
+        glossary: options?.glossary,
+        systemPrompt: this.buildBatchSystemPrompt(
+          this.config.targetLanguage,
+          options?.glossary || this.config.glossary
+        ),
+      });
+
+      const segmentMatches = [...batchResult.translatedText.matchAll(/<segment id="(\d+)">\n?([\s\S]*?)\n?<\/segment>/g)];
+      if (segmentMatches.length !== groupedParagraphs.length) {
+        const fallbackResults = await Promise.all(groupedParagraphs.map(async (item, offset) => {
+          const result = await this.translate(item, { signal, glossary: options?.glossary });
+          return { index: startIndex + offset, result };
+        }));
+
+        fallbackResults.forEach(({ index }) => onParagraphProgress?.(index + 1, paragraphs.length));
+        return fallbackResults;
+      }
+
+      const parsedResults = segmentMatches.map(([, id, text], offset) => ({
+        index: Number(id),
+        result: {
+          translatedText: text,
+          tokenUsage: offset === 0 ? batchResult.tokenUsage : undefined,
+        },
+      }));
+
+      parsedResults.forEach(({ index }) => onParagraphProgress?.(index + 1, paragraphs.length));
+      return parsedResults;
+    };
+
+    for (let i = 0; i < paragraphs.length;) {
       if (signal?.aborted) {
         throw new TranslationError(
           'Translation was cancelled.',
@@ -369,16 +444,28 @@ Your goal is to provide a clean, accurate translation that preserves all technic
         );
       }
 
-      const batch = paragraphs.slice(i, i + maxConcurrency);
-      const batchPromises = batch.map(async (paragraph, batchIndex) => {
-        const globalIndex = i + batchIndex;
-        const result = await this.translate(paragraph, { signal, glossary: options?.glossary });
-        onParagraphProgress?.(globalIndex + 1, paragraphs.length);
-        return { index: globalIndex, result };
-      });
+      const groupPromises: Array<Promise<Array<{ index: number; result: TranslationResult }>>> = [];
 
-      const batchResults = await Promise.all(batchPromises);
-      for (const { index, result } of batchResults) {
+      for (let groupCount = 0; groupCount < maxConcurrency && i < paragraphs.length; groupCount++) {
+        const startIndex = i;
+        const groupedParagraphs = [paragraphs[i]];
+        let groupedTokens = this.estimateTokens(paragraphs[i]);
+        i++;
+
+        while (
+          i < paragraphs.length &&
+          groupedTokens + this.estimateTokens(paragraphs[i]) <= maxBatchTokens
+        ) {
+          groupedParagraphs.push(paragraphs[i]);
+          groupedTokens += this.estimateTokens(paragraphs[i]);
+          i++;
+        }
+
+        groupPromises.push(translateGroup(groupedParagraphs, startIndex));
+      }
+
+      const flattenedResults = (await Promise.all(groupPromises)).flat();
+      for (const { index, result } of flattenedResults) {
         results[index] = result;
       }
     }

@@ -1,7 +1,6 @@
 {
   "rosettaMark.translate.title": "Markdownを翻訳",
   "rosettaMark.setApiKey.title": "APIキーを設定",
-  "rosettaMark.reverseTranslate.title": "ソースに逆翻訳",
   "rosettaMark.batchTranslate.title": "一括翻訳",
   "rosettaMark.translateSelection.title": "選択範囲を翻訳",
   "rosettaMark.cancelTranslation.title": "翻訳をキャンセル",

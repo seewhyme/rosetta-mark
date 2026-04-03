@@ -168,7 +168,9 @@ export function activate(context: vscode.ExtensionContext) {
         { placeHolder: 'Where should the API key be stored?' }
       );
 
-      if (!scope) return;
+      if (!scope) {
+        return;
+      }
 
       const apiKey = await vscode.window.showInputBox({
         prompt: `Enter your API Key (${scope.label})`,
@@ -246,13 +248,18 @@ export function activate(context: vscode.ExtensionContext) {
       const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
       const sourcePath = editor.document.uri.fsPath;
       const content = editor.document.getText();
+      const configSignature = configManager.getConfigSignature();
 
       try {
         // Check if translation is up to date
-        const needsTranslation = await currentFsManager.needsTranslation(sourcePath, content);
+        const needsTranslation = await currentFsManager.needsTranslation(
+          sourcePath,
+          content,
+          configSignature
+        );
 
         if (!needsTranslation) {
-          const translationPath = currentFsManager.getTranslationPath(sourcePath);
+          const translationPath = currentFsManager.getTranslationPath(sourcePath, configSignature);
           const config = vscode.workspace.getConfiguration('rosettaMark');
           const previewMode = config.get<PreviewMode>('previewMode', 'preview');
 
@@ -263,7 +270,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Get existing translation for incremental update
         const existingMetadata = await currentFsManager.getParagraphMapping(
-          currentFsManager.getTranslationPath(sourcePath)
+          currentFsManager.getTranslationPath(sourcePath, configSignature)
         );
 
         const config = await configManager.getConfig();
@@ -320,7 +327,8 @@ export function activate(context: vscode.ExtensionContext) {
               content,
               translationResult.translatedText,
               translationResult.paragraphs,
-              existingMetadata?.sourceLanguage
+              existingMetadata?.sourceLanguage,
+              configSignature
             );
 
             progress.report({ message: 'Opening translation...' });
@@ -377,7 +385,9 @@ export function activate(context: vscode.ExtensionContext) {
           { label: 'All Markdown Files in Workspace', value: 'workspace' },
         ], { placeHolder: 'What do you want to translate?' });
 
-        if (!choice) return;
+        if (!choice) {
+          return;
+        }
 
         if (choice.value === 'current') {
           const editor = vscode.window.activeTextEditor;
@@ -417,7 +427,9 @@ export function activate(context: vscode.ExtensionContext) {
         'Yes', 'No'
       );
 
-      if (confirm !== 'Yes') return;
+      if (confirm !== 'Yes') {
+        return;
+      }
 
       currentTranslationController = new AbortController();
       const signal = currentTranslationController.signal;
@@ -441,7 +453,9 @@ export function activate(context: vscode.ExtensionContext) {
             const engine = new TranslationEngine(config);
 
             for (let i = 0; i < filesToTranslate.length; i++) {
-              if (signal.aborted) break;
+              if (signal.aborted) {
+                break;
+              }
 
               const fileUri = filesToTranslate[i];
               const fileName = path.basename(fileUri.fsPath);
@@ -459,7 +473,12 @@ export function activate(context: vscode.ExtensionContext) {
 
               try {
                 const content = await fs.readFile(fileUri.fsPath, 'utf-8');
-                const needsTranslation = await currentFsManager.needsTranslation(fileUri.fsPath, content);
+                const configSignature = configManager.getConfigSignature();
+                const needsTranslation = await currentFsManager.needsTranslation(
+                  fileUri.fsPath,
+                  content,
+                  configSignature
+                );
 
                 if (!needsTranslation) {
                   successCount++;
@@ -467,7 +486,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
 
                 const existingMetadata = await currentFsManager.getParagraphMapping(
-                  currentFsManager.getTranslationPath(fileUri.fsPath)
+                  currentFsManager.getTranslationPath(fileUri.fsPath, configSignature)
                 );
 
                 const result = await engine.translateWithExisting(
@@ -481,7 +500,8 @@ export function activate(context: vscode.ExtensionContext) {
                   content,
                   result.translatedText,
                   result.paragraphs,
-                  existingMetadata?.sourceLanguage
+                  existingMetadata?.sourceLanguage,
+                  configSignature
                 );
 
                 successCount++;
@@ -504,145 +524,6 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`Batch translation cancelled. Completed: ${successCount}, Errors: ${errorCount}`);
       } else {
         vscode.window.showInformationMessage(`Batch translation completed! Success: ${successCount}, Errors: ${errorCount}`);
-      }
-    }
-  );
-
-  // Reverse translate command
-  const reverseTranslateCommand = vscode.commands.registerCommand(
-    'rosettaMark.reverseTranslate',
-    async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage('No active editor');
-        return;
-      }
-
-      if (editor.document.languageId !== 'markdown') {
-        vscode.window.showErrorMessage('Current file is not a Markdown file');
-        return;
-      }
-
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('Please open a workspace folder first');
-        return;
-      }
-
-      const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
-      const translationPath = editor.document.uri.fsPath;
-
-      if (!currentFsManager.isTranslationFile(translationPath)) {
-        vscode.window.showErrorMessage('This is not a translation file. Reverse translation can only be performed on files in the .rosetta-mark directory.');
-        return;
-      }
-
-      try {
-        const metadata = await currentFsManager.getParagraphMapping(translationPath);
-        if (!metadata) {
-          vscode.window.showErrorMessage('No translation metadata found. Please translate the original file first.');
-          return;
-        }
-
-        const currentContent = editor.document.getText();
-        const config = await configManager.getConfig();
-        const engine = new TranslationEngine(config);
-
-        let sourceLanguage = metadata.sourceLanguage;
-        if (!sourceLanguage) {
-          const sourcePath = currentFsManager.getSourcePathFromTranslation(translationPath);
-          if (sourcePath) {
-            try {
-              const sourceContent = await fs.readFile(sourcePath, 'utf-8');
-              const aiService = new (await import('./ai/service')).AIService(config);
-              sourceLanguage = await aiService.detectLanguage(sourceContent);
-            } catch {
-              vscode.window.showErrorMessage('Could not detect source language. Please ensure the original file exists.');
-              return;
-            }
-          }
-        }
-
-        if (!sourceLanguage) {
-          vscode.window.showErrorMessage('Could not determine source language.');
-          return;
-        }
-
-        currentTranslationController = new AbortController();
-        const signal = currentTranslationController.signal;
-
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Reverse translating...',
-            cancellable: true,
-          },
-          async (progress, token) => {
-            token.onCancellationRequested(() => {
-              currentTranslationController?.abort();
-            });
-
-            progress.report({ message: 'Detecting changes...' });
-
-            // Add missing sourceHash to paragraphs for backward compatibility
-            const paragraphsWithHash = metadata.paragraphs.map(p => ({
-              ...p,
-              sourceHash: p.sourceHash || '',
-            }));
-
-            const reverseResult = await engine.reverseTranslate(
-              currentContent,
-              paragraphsWithHash,
-              sourceLanguage!,
-              (message) => {
-                updateStatusBar(
-                  `$(sync~spin) Reverse translating...`,
-                  message,
-                  'rosettaMark.cancelTranslation'
-                );
-                progress.report({ message });
-              },
-              signal
-            );
-
-            if (reverseResult.modifiedIndices.length === 0) {
-              vscode.window.showInformationMessage('No changes detected in the translation.');
-              return;
-            }
-
-            progress.report({ message: 'Updating source file...' });
-
-            const sourcePath = currentFsManager.getSourcePathFromTranslation(translationPath);
-            if (!sourcePath) {
-              vscode.window.showErrorMessage('Could not determine source file path.');
-              return;
-            }
-
-            await fs.writeFile(sourcePath, reverseResult.newSourceContent, 'utf-8');
-
-            await currentFsManager.updateParagraphMapping(
-              translationPath,
-              reverseResult.newParagraphs,
-              reverseResult.newSourceContent
-            );
-
-            const sourceUri = vscode.Uri.file(sourcePath);
-            const doc = await vscode.workspace.openTextDocument(sourceUri);
-            await vscode.window.showTextDocument(doc, {
-              viewColumn: vscode.ViewColumn.Beside,
-              preserveFocus: false,
-            });
-
-            vscode.window.showInformationMessage(
-              `Reverse translation completed! Updated ${reverseResult.modifiedIndices.length} paragraph(s) in the source file.`
-            );
-          }
-        );
-      } catch (error) {
-        handleTranslationError(error);
-      } finally {
-        currentTranslationController = null;
-        showIdleStatus();
       }
     }
   );
@@ -712,7 +593,6 @@ export function activate(context: vscode.ExtensionContext) {
     cancelTranslationCommand,
     translateCommand,
     batchTranslateCommand,
-    reverseTranslateCommand,
     translateSelectionCommand
   );
 }

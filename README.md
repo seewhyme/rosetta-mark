@@ -133,8 +133,6 @@ The extension will:
 
 **Selection Translation**: Select any text and use `Cmd+Alt+T` (Mac) / `Ctrl+Alt+T` (Windows/Linux) to translate only the selected portion.
 
-**Reverse Translation**: Open a translated file and click the reverse arrow icon to translate back to the source language.
-
 ## Translation Cache
 
 All translations are stored in `.rosetta-mark/` directory in your workspace, maintaining the same directory structure as your source files. The extension tracks file hashes to detect changes and only re-translates when necessary.
