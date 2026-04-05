@@ -38,7 +38,7 @@ jobs:
         run: pnpm run compile
 
       - name: Package extension
-        run: pnpm exec vsce package
+        run: pnpm exec vsce package --no-dependencies
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +71,7 @@ jobs:
         run: pnpm run compile
 
       - name: Publish to VS Code Marketplace
-        run: pnpm exec vsce publish -p ${{ secrets.VSCE_PAT }}
+        run: pnpm exec vsce publish --no-dependencies -p ${{ secrets.VSCE_PAT }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
