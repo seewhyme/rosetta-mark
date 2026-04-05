@@ -18,6 +18,7 @@ AI-powered Markdown translation VS Code extension with context awareness and inc
 ### 1. Install the Extension
 
 Install from VS Code Marketplace or download the `.vsix` file.
+Marketplace: [seewhyme.rosetta-mark](https://marketplace.visualstudio.com/items?itemName=seewhyme.rosetta-mark)
 
 ### 2. Set Your API Key
 
