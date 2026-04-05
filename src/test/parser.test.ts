@@ -36,6 +36,15 @@ suite('MarkdownParser Test Suite', () => {
   });
 
   suite('splitIntoParagraphsWithHash', () => {
+    test('should identify frontmatter blocks separately', () => {
+      const content = '---\ntitle: Test\nlang: en\n---\n\nParagraph';
+      const result = parser.splitIntoParagraphsWithHash(content);
+
+      assert.strictEqual(result[0].type, 'frontmatter');
+      assert.ok(result[0].content.includes('title: Test'));
+      assert.strictEqual(result[1].type, 'text');
+    });
+
     test('should identify code blocks', () => {
       const content = 'Text before\n\n```javascript\nconsole.log("hello");\n```\n\nText after';
       const result = parser.splitIntoParagraphsWithHash(content);
@@ -62,6 +71,16 @@ suite('MarkdownParser Test Suite', () => {
       const hash2 = parser.calculateHash(content2);
 
       assert.strictEqual(hash1, hash2);
+    });
+
+    test('should keep markdown lists as one segment even with blank lines between items', () => {
+      const content = '- first item\n\n- second item\n\nParagraph after list';
+      const result = parser.splitIntoParagraphsWithHash(content);
+
+      assert.strictEqual(result.length, 2);
+      assert.ok(result[0].content.includes('- first item'));
+      assert.ok(result[0].content.includes('- second item'));
+      assert.strictEqual(result[1].content, 'Paragraph after list');
     });
   });
 

@@ -76,15 +76,26 @@ export class TranslationEngine {
       }
     }
 
+    type PendingTranslationGroup = Array<{ index: number; paragraph: ParsedParagraph }>;
+
     // 找出需要翻译的段落
-    const paragraphsToTranslate: { index: number; paragraph: ParsedParagraph }[] = [];
+    const translationGroups: PendingTranslationGroup[] = [];
     const resultParagraphs: ParagraphMapping[] = [];
+    let currentGroup: PendingTranslationGroup = [];
+
+    const flushCurrentGroup = () => {
+      if (currentGroup.length > 0) {
+        translationGroups.push(currentGroup);
+        currentGroup = [];
+      }
+    };
 
     for (let i = 0; i < currentParagraphs.length; i++) {
       const paragraph = currentParagraphs[i];
 
-      // 代码块不需要翻译
-      if (paragraph.type === 'code') {
+      // 代码块和 frontmatter 不需要翻译
+      if (paragraph.type !== 'text') {
+        flushCurrentGroup();
         resultParagraphs.push({
           sourceContent: paragraph.content,
           translatedContent: paragraph.content,
@@ -96,9 +107,10 @@ export class TranslationEngine {
       // 检查是否有现有翻译
       const existing = existingHashMap.get(paragraph.hash);
       if (existing) {
+        flushCurrentGroup();
         resultParagraphs.push(existing);
       } else {
-        paragraphsToTranslate.push({ index: i, paragraph });
+        currentGroup.push({ index: i, paragraph });
         resultParagraphs.push({
           sourceContent: paragraph.content,
           translatedContent: '', // 待填充
@@ -106,47 +118,54 @@ export class TranslationEngine {
         });
       }
     }
+    flushCurrentGroup();
 
-    const reusedCount = totalParagraphs - paragraphsToTranslate.length;
+    const paragraphsToTranslateCount = translationGroups.reduce((count, group) => count + group.length, 0);
+    const reusedCount = totalParagraphs - paragraphsToTranslateCount;
     const totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
     onProgress?.({
       current: reusedCount,
       total: totalParagraphs,
       phase: 'translating',
-      message: `Reusing ${reusedCount} cached paragraphs, translating ${paragraphsToTranslate.length}...`,
+      message: `Reusing ${reusedCount} cached paragraphs, translating ${paragraphsToTranslateCount}...`,
     });
 
     // 并行翻译需要翻译的段落
-    if (paragraphsToTranslate.length > 0) {
-      const textsToTranslate = paragraphsToTranslate.map(p => p.paragraph.content);
+    if (translationGroups.length > 0) {
+      let translatedCount = 0;
 
-      const results = await this.aiService.translateParagraphs(textsToTranslate, {
-        signal,
-        maxConcurrency,
-        glossary: this.config.glossary,
-        onParagraphProgress: (current, total) => {
-          onProgress?.({
-            current: reusedCount + current,
-            total: totalParagraphs,
-            phase: 'translating',
-            message: `Translating paragraph ${current}/${total}...`,
-          });
-        },
-      });
+      for (const group of translationGroups) {
+        const textsToTranslate = group.map(item => item.paragraph.content);
 
-      // 填充翻译结果
-      for (let i = 0; i < paragraphsToTranslate.length; i++) {
-        const { index } = paragraphsToTranslate[i];
-        const result = results[i];
+        const results = await this.aiService.translateParagraphs(textsToTranslate, {
+          signal,
+          maxConcurrency,
+          glossary: this.config.glossary,
+          onParagraphProgress: (current) => {
+            onProgress?.({
+              current: reusedCount + translatedCount + current,
+              total: totalParagraphs,
+              phase: 'translating',
+              message: `Translating paragraph ${translatedCount + current}/${paragraphsToTranslateCount}...`,
+            });
+          },
+        });
 
-        resultParagraphs[index].translatedContent = result.translatedText;
+        for (let i = 0; i < group.length; i++) {
+          const { index } = group[i];
+          const result = results[i];
 
-        if (result.tokenUsage) {
-          totalTokenUsage.prompt += result.tokenUsage.prompt;
-          totalTokenUsage.completion += result.tokenUsage.completion;
-          totalTokenUsage.total += result.tokenUsage.total;
+          resultParagraphs[index].translatedContent = result.translatedText;
+
+          if (result.tokenUsage) {
+            totalTokenUsage.prompt += result.tokenUsage.prompt;
+            totalTokenUsage.completion += result.tokenUsage.completion;
+            totalTokenUsage.total += result.tokenUsage.total;
+          }
         }
+
+        translatedCount += group.length;
       }
     }
 
@@ -165,7 +184,7 @@ export class TranslationEngine {
     return {
       translatedText,
       paragraphs: resultParagraphs,
-      changedParagraphs: paragraphsToTranslate.length,
+      changedParagraphs: paragraphsToTranslateCount,
       reusedParagraphs: reusedCount,
       tokenUsage: totalTokenUsage.total > 0 ? totalTokenUsage : undefined,
     };
