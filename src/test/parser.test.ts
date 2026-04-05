@@ -60,7 +60,11 @@ suite('MarkdownParser Test Suite', () => {
 
       assert.ok(result[0].hash, 'First paragraph should have a hash');
       assert.ok(result[1].hash, 'Second paragraph should have a hash');
-      assert.notStrictEqual(result[0].hash, result[1].hash, 'Different paragraphs should have different hashes');
+      assert.notStrictEqual(
+        result[0].hash,
+        result[1].hash,
+        'Different paragraphs should have different hashes'
+      );
     });
 
     test('should have same hash for identical content', () => {
@@ -97,7 +101,10 @@ suite('MarkdownParser Test Suite', () => {
       const content = 'Text before\n\n```js\ncode\n```\n\nText after';
       const result = parser.extractTextForTranslation(content);
 
-      assert.ok(result.translatableText.includes('__CODE_BLOCK_'), 'Should have code block placeholder');
+      assert.ok(
+        result.translatableText.includes('__CODE_BLOCK_'),
+        'Should have code block placeholder'
+      );
       assert.ok(result.codeBlocks.size > 0, 'Should store code blocks');
     });
 
@@ -105,7 +112,10 @@ suite('MarkdownParser Test Suite', () => {
       const content = 'Use `npm install` to install';
       const result = parser.extractTextForTranslation(content);
 
-      assert.ok(result.translatableText.includes('__INLINE_CODE_'), 'Should have inline code placeholder');
+      assert.ok(
+        result.translatableText.includes('__INLINE_CODE_'),
+        'Should have inline code placeholder'
+      );
     });
   });
 
@@ -145,11 +155,14 @@ suite('MarkdownParser Test Suite', () => {
 
   suite('estimateTokens', () => {
     test('should estimate token count', () => {
-      const content = 'Hello world';  // 11 characters
+      const content = 'Hello world'; // 11 characters
       const tokens = parser.estimateTokens(content);
 
       assert.ok(tokens > 0, 'Should return positive token count');
-      assert.ok(tokens <= content.length, 'Token count should be less than or equal to character count');
+      assert.ok(
+        tokens <= content.length,
+        'Token count should be less than or equal to character count'
+      );
     });
   });
 

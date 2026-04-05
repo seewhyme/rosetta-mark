@@ -6,9 +6,8 @@ export class ErrorHandler {
    * Display user-friendly error messages and provide actionable suggestions
    */
   static async handleError(error: unknown, context?: string): Promise<void> {
-    const translationError = error instanceof TranslationError
-      ? error
-      : this.createTranslationError(error);
+    const translationError =
+      error instanceof TranslationError ? error : this.createTranslationError(error);
 
     const errorMessage = this.getErrorMessage(translationError, context);
     const actions = this.getErrorActions(translationError);
@@ -63,11 +62,7 @@ export class ErrorHandler {
       );
     }
 
-    return new TranslationError(
-      errorMessage,
-      TranslationErrorCode.UNKNOWN,
-      false
-    );
+    return new TranslationError(errorMessage, TranslationErrorCode.UNKNOWN, false);
   }
 
   private static getErrorMessage(error: TranslationError, context?: string): string {
@@ -97,7 +92,9 @@ export class ErrorHandler {
     }
   }
 
-  private static getErrorActions(error: TranslationError): Array<{ label: string; handler: () => Promise<void> }> {
+  private static getErrorActions(
+    error: TranslationError
+  ): Array<{ label: string; handler: () => Promise<void> }> {
     const actions: Array<{ label: string; handler: () => Promise<void> }> = [];
 
     switch (error.code) {
@@ -106,13 +103,13 @@ export class ErrorHandler {
           label: 'Set API Key',
           handler: async () => {
             await vscode.commands.executeCommand('rosettaMark.setApiKey');
-          }
+          },
         });
         actions.push({
           label: 'Open Settings',
           handler: async () => {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'rosettaMark');
-          }
+          },
         });
         break;
 
@@ -120,15 +117,18 @@ export class ErrorHandler {
         actions.push({
           label: 'Reduce Concurrency',
           handler: async () => {
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'rosettaMark.maxConcurrency');
-          }
+            await vscode.commands.executeCommand(
+              'workbench.action.openSettings',
+              'rosettaMark.maxConcurrency'
+            );
+          },
         });
         actions.push({
           label: 'Retry',
           handler: async () => {
             // User can manually retry
             vscode.window.showInformationMessage('Please wait a few minutes before retrying.');
-          }
+          },
         });
         break;
 
@@ -136,14 +136,19 @@ export class ErrorHandler {
         actions.push({
           label: 'Check Settings',
           handler: async () => {
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'rosettaMark.baseUrl');
-          }
+            await vscode.commands.executeCommand(
+              'workbench.action.openSettings',
+              'rosettaMark.baseUrl'
+            );
+          },
         });
         actions.push({
           label: 'Retry',
           handler: async () => {
-            vscode.window.showInformationMessage('Please check your connection and retry the translation.');
-          }
+            vscode.window.showInformationMessage(
+              'Please check your connection and retry the translation.'
+            );
+          },
         });
         break;
 
@@ -151,8 +156,10 @@ export class ErrorHandler {
         actions.push({
           label: 'Translate Selection',
           handler: async () => {
-            vscode.window.showInformationMessage('Select a portion of the text and use "Translate Selection" instead.');
-          }
+            vscode.window.showInformationMessage(
+              'Select a portion of the text and use "Translate Selection" instead.'
+            );
+          },
         });
         break;
     }
@@ -163,7 +170,10 @@ export class ErrorHandler {
   /**
    * Validate API key format for different providers
    */
-  static validateApiKeyFormat(apiKey: string, provider: string): { valid: boolean; message?: string } {
+  static validateApiKeyFormat(
+    apiKey: string,
+    provider: string
+  ): { valid: boolean; message?: string } {
     if (!apiKey || apiKey.trim().length === 0) {
       return { valid: false, message: 'API key cannot be empty' };
     }
@@ -209,13 +219,16 @@ export class ErrorHandler {
    */
   static showProgressWithCancellation(
     title: string,
-    task: (progress: vscode.Progress<{ message?: string; increment?: number }>, token: vscode.CancellationToken) => Promise<void>
+    task: (
+      progress: vscode.Progress<{ message?: string; increment?: number }>,
+      token: vscode.CancellationToken
+    ) => Promise<void>
   ): Thenable<void> {
     return vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title,
-        cancellable: true
+        cancellable: true,
       },
       task
     );

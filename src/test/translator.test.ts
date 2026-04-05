@@ -40,7 +40,7 @@ suite('TranslationEngine Test Suite', () => {
       'After code block',
     ].join('\n');
 
-    const result = await engine.translateIncremental(content) as IncrementalTranslationResult;
+    const result = (await engine.translateIncremental(content)) as IncrementalTranslationResult;
 
     assert.deepStrictEqual(calls, [['Intro paragraph'], ['After code block']]);
     assert.ok(result.translatedText.includes('ZH:Intro paragraph'));

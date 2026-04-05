@@ -71,11 +71,7 @@ async function openTranslatedDocument(
         });
 
         await new Promise(resolve => setTimeout(resolve, 100));
-        await vscode.commands.executeCommand(
-          'markdown.showPreview',
-          uri,
-          vscode.ViewColumn.Three
-        );
+        await vscode.commands.executeCommand('markdown.showPreview', uri, vscode.ViewColumn.Three);
         break;
       }
     }
@@ -96,14 +92,13 @@ function handleTranslationError(error: unknown): void {
         vscode.window.showInformationMessage('Translation was cancelled.');
         break;
       case TranslationErrorCode.AUTH_ERROR:
-        vscode.window.showErrorMessage(
-          'Authentication failed. Please check your API key.',
-          'Set API Key'
-        ).then(action => {
-          if (action === 'Set API Key') {
-            vscode.commands.executeCommand('rosettaMark.setApiKey');
-          }
-        });
+        vscode.window
+          .showErrorMessage('Authentication failed. Please check your API key.', 'Set API Key')
+          .then(action => {
+            if (action === 'Set API Key') {
+              vscode.commands.executeCommand('rosettaMark.setApiKey');
+            }
+          });
         break;
       case TranslationErrorCode.RATE_LIMIT:
         vscode.window.showWarningMessage(
@@ -111,9 +106,7 @@ function handleTranslationError(error: unknown): void {
         );
         break;
       case TranslationErrorCode.NETWORK_ERROR:
-        vscode.window.showErrorMessage(
-          'Network error. Please check your internet connection.'
-        );
+        vscode.window.showErrorMessage('Network error. Please check your internet connection.');
         break;
       case TranslationErrorCode.FILE_TOO_LARGE:
         vscode.window.showErrorMessage(error.message);
@@ -148,69 +141,68 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // Set API Key command
-  const setApiKeyCommand = vscode.commands.registerCommand(
-    'rosettaMark.setApiKey',
-    async () => {
-      const scope = await vscode.window.showQuickPick(
-        [
-          {
-            label: 'Global (User)',
-            value: 'global' as const,
-            description: 'For all projects (recommended)',
-            picked: true
-          },
-          {
-            label: 'Workspace',
-            value: 'workspace' as const,
-            description: 'Only for this project'
-          }
-        ],
-        { placeHolder: 'Where should the API key be stored?' }
-      );
+  const setApiKeyCommand = vscode.commands.registerCommand('rosettaMark.setApiKey', async () => {
+    const scope = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'Global (User)',
+          value: 'global' as const,
+          description: 'For all projects (recommended)',
+          picked: true,
+        },
+        {
+          label: 'Workspace',
+          value: 'workspace' as const,
+          description: 'Only for this project',
+        },
+      ],
+      { placeHolder: 'Where should the API key be stored?' }
+    );
 
-      if (!scope) {
-        return;
-      }
+    if (!scope) {
+      return;
+    }
 
-      const apiKey = await vscode.window.showInputBox({
-        prompt: `Enter your API Key (${scope.label})`,
-        password: true,
-        placeHolder: 'sk-...',
-      });
+    const apiKey = await vscode.window.showInputBox({
+      prompt: `Enter your API Key (${scope.label})`,
+      password: true,
+      placeHolder: 'sk-...',
+    });
 
-      if (apiKey) {
-        // Validate API key before saving
-        updateStatusBar('$(sync~spin) Validating API key...', 'Validating API key');
+    if (apiKey) {
+      // Validate API key before saving
+      updateStatusBar('$(sync~spin) Validating API key...', 'Validating API key');
 
-        try {
-          const config = await configManager.getConfigWithApiKey(apiKey);
-          const engine = new TranslationEngine(config);
-          const isValid = await engine.validateApiKey();
+      try {
+        const config = await configManager.getConfigWithApiKey(apiKey);
+        const engine = new TranslationEngine(config);
+        const isValid = await engine.validateApiKey();
 
-          if (!isValid) {
-            vscode.window.showErrorMessage('Invalid API key. Please check and try again.');
-            showIdleStatus();
-            return;
-          }
-
-          await configManager.setApiKey(apiKey, scope.value);
-          vscode.window.showInformationMessage(`API Key validated and saved to ${scope.label} scope!`);
-        } catch (error) {
-          if (error instanceof TranslationError && error.code === TranslationErrorCode.AUTH_ERROR) {
-            vscode.window.showErrorMessage('Invalid API key. Please check and try again.');
-          } else {
-            // Network error or other - save anyway
-            await configManager.setApiKey(apiKey, scope.value);
-            vscode.window.showInformationMessage(
-              `API Key saved to ${scope.label} scope. (Could not validate due to network issues)`
-            );
-          }
+        if (!isValid) {
+          vscode.window.showErrorMessage('Invalid API key. Please check and try again.');
+          showIdleStatus();
+          return;
         }
 
-        showIdleStatus();
+        await configManager.setApiKey(apiKey, scope.value);
+        vscode.window.showInformationMessage(
+          `API Key validated and saved to ${scope.label} scope!`
+        );
+      } catch (error) {
+        if (error instanceof TranslationError && error.code === TranslationErrorCode.AUTH_ERROR) {
+          vscode.window.showErrorMessage('Invalid API key. Please check and try again.');
+        } else {
+          // Network error or other - save anyway
+          await configManager.setApiKey(apiKey, scope.value);
+          vscode.window.showInformationMessage(
+            `API Key saved to ${scope.label} scope. (Could not validate due to network issues)`
+          );
+        }
       }
+
+      showIdleStatus();
     }
-  );
+  });
 
   // Cancel translation command
   const cancelTranslationCommand = vscode.commands.registerCommand(
@@ -225,138 +217,135 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // Translate command
-  const translateCommand = vscode.commands.registerCommand(
-    'rosettaMark.translate',
-    async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage('No active editor');
+  const translateCommand = vscode.commands.registerCommand('rosettaMark.translate', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active editor');
+      return;
+    }
+
+    if (editor.document.languageId !== 'markdown') {
+      vscode.window.showErrorMessage('Current file is not a Markdown file');
+      return;
+    }
+
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+    if (!workspaceFolder) {
+      vscode.window.showErrorMessage('Please open a workspace folder first');
+      return;
+    }
+
+    const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
+    const sourcePath = editor.document.uri.fsPath;
+    const content = editor.document.getText();
+    const configSignature = configManager.getConfigSignature();
+
+    try {
+      // Check if translation is up to date
+      const needsTranslation = await currentFsManager.needsTranslation(
+        sourcePath,
+        content,
+        configSignature
+      );
+
+      if (!needsTranslation) {
+        const translationPath = currentFsManager.getTranslationPath(sourcePath, configSignature);
+        const config = vscode.workspace.getConfiguration('rosettaMark');
+        const previewMode = config.get<PreviewMode>('previewMode', 'preview');
+
+        await openTranslatedDocument(translationPath, previewMode);
+        vscode.window.showInformationMessage('Translation is up to date!');
         return;
       }
 
-      if (editor.document.languageId !== 'markdown') {
-        vscode.window.showErrorMessage('Current file is not a Markdown file');
-        return;
-      }
+      // Get existing translation for incremental update
+      const existingMetadata = await currentFsManager.getParagraphMapping(
+        currentFsManager.getTranslationPath(sourcePath, configSignature)
+      );
 
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('Please open a workspace folder first');
-        return;
-      }
+      const config = await configManager.getConfig();
+      const engine = new TranslationEngine(config);
 
-      const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
-      const sourcePath = editor.document.uri.fsPath;
-      const content = editor.document.getText();
-      const configSignature = configManager.getConfigSignature();
-
-      try {
-        // Check if translation is up to date
-        const needsTranslation = await currentFsManager.needsTranslation(
-          sourcePath,
-          content,
-          configSignature
+      // Check document size
+      const sizeCheck = engine.checkDocumentSize(content);
+      if (!sizeCheck.valid) {
+        throw new TranslationError(
+          sizeCheck.message || 'Document is too large',
+          TranslationErrorCode.FILE_TOO_LARGE
         );
+      }
 
-        if (!needsTranslation) {
-          const translationPath = currentFsManager.getTranslationPath(sourcePath, configSignature);
-          const config = vscode.workspace.getConfiguration('rosettaMark');
-          const previewMode = config.get<PreviewMode>('previewMode', 'preview');
+      // Create abort controller for cancellation
+      currentTranslationController = new AbortController();
+      const signal = currentTranslationController.signal;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Translating markdown...',
+          cancellable: true,
+        },
+        async (progress, token) => {
+          token.onCancellationRequested(() => {
+            currentTranslationController?.abort();
+          });
+
+          const translationResult = await engine.translateWithExisting(
+            content,
+            existingMetadata?.paragraphs || [],
+            {
+              signal,
+              onProgress: (p: TranslationProgress) => {
+                const percentage = Math.round((p.current / p.total) * 100);
+                updateStatusBar(
+                  `$(sync~spin) Translating ${percentage}%`,
+                  `${p.message}\nClick to cancel`,
+                  'rosettaMark.cancelTranslation'
+                );
+                progress.report({
+                  message: p.message,
+                  increment: 100 / p.total,
+                });
+              },
+            }
+          );
+
+          progress.report({ message: 'Saving translation...' });
+
+          const translationPath = await currentFsManager.saveTranslationWithMapping(
+            sourcePath,
+            content,
+            translationResult.translatedText,
+            translationResult.paragraphs,
+            existingMetadata?.sourceLanguage,
+            configSignature
+          );
+
+          progress.report({ message: 'Opening translation...' });
+
+          const vsConfig = vscode.workspace.getConfiguration('rosettaMark');
+          const previewMode = vsConfig.get<PreviewMode>('previewMode', 'preview');
 
           await openTranslatedDocument(translationPath, previewMode);
-          vscode.window.showInformationMessage('Translation is up to date!');
-          return;
-        }
 
-        // Get existing translation for incremental update
-        const existingMetadata = await currentFsManager.getParagraphMapping(
-          currentFsManager.getTranslationPath(sourcePath, configSignature)
-        );
-
-        const config = await configManager.getConfig();
-        const engine = new TranslationEngine(config);
-
-        // Check document size
-        const sizeCheck = engine.checkDocumentSize(content);
-        if (!sizeCheck.valid) {
-          throw new TranslationError(
-            sizeCheck.message || 'Document is too large',
-            TranslationErrorCode.FILE_TOO_LARGE
-          );
-        }
-
-        // Create abort controller for cancellation
-        currentTranslationController = new AbortController();
-        const signal = currentTranslationController.signal;
-
-        await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Translating markdown...',
-            cancellable: true,
-          },
-          async (progress, token) => {
-            token.onCancellationRequested(() => {
-              currentTranslationController?.abort();
-            });
-
-            const translationResult = await engine.translateWithExisting(
-              content,
-              existingMetadata?.paragraphs || [],
-              {
-                signal,
-                onProgress: (p: TranslationProgress) => {
-                  const percentage = Math.round((p.current / p.total) * 100);
-                  updateStatusBar(
-                    `$(sync~spin) Translating ${percentage}%`,
-                    `${p.message}\nClick to cancel`,
-                    'rosettaMark.cancelTranslation'
-                  );
-                  progress.report({
-                    message: p.message,
-                    increment: (100 / p.total),
-                  });
-                },
-              }
-            );
-
-            progress.report({ message: 'Saving translation...' });
-
-            const translationPath = await currentFsManager.saveTranslationWithMapping(
-              sourcePath,
-              content,
-              translationResult.translatedText,
-              translationResult.paragraphs,
-              existingMetadata?.sourceLanguage,
-              configSignature
-            );
-
-            progress.report({ message: 'Opening translation...' });
-
-            const vsConfig = vscode.workspace.getConfiguration('rosettaMark');
-            const previewMode = vsConfig.get<PreviewMode>('previewMode', 'preview');
-
-            await openTranslatedDocument(translationPath, previewMode);
-
-            let message = 'Translation completed!';
-            if (translationResult.reusedParagraphs > 0) {
-              message += ` (Reused ${translationResult.reusedParagraphs} cached paragraphs)`;
-            }
-            if (translationResult.tokenUsage) {
-              message += ` Tokens: ${translationResult.tokenUsage.total}`;
-            }
-
-            vscode.window.showInformationMessage(message);
+          let message = 'Translation completed!';
+          if (translationResult.reusedParagraphs > 0) {
+            message += ` (Reused ${translationResult.reusedParagraphs} cached paragraphs)`;
           }
-        );
-      } catch (error) {
-        handleTranslationError(error);
-      } finally {
-        currentTranslationController = null;
-        showIdleStatus();
-      }
+          if (translationResult.tokenUsage) {
+            message += ` Tokens: ${translationResult.tokenUsage.total}`;
+          }
+
+          vscode.window.showInformationMessage(message);
+        }
+      );
+    } catch (error) {
+      handleTranslationError(error);
+    } finally {
+      currentTranslationController = null;
+      showIdleStatus();
     }
-  );
+  });
 
   // Batch translate command
   const batchTranslateCommand = vscode.commands.registerCommand(
@@ -380,10 +369,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
       } else {
         // No context - ask user
-        const choice = await vscode.window.showQuickPick([
-          { label: 'Current File', value: 'current' },
-          { label: 'All Markdown Files in Workspace', value: 'workspace' },
-        ], { placeHolder: 'What do you want to translate?' });
+        const choice = await vscode.window.showQuickPick(
+          [
+            { label: 'Current File', value: 'current' },
+            { label: 'All Markdown Files in Workspace', value: 'workspace' },
+          ],
+          { placeHolder: 'What do you want to translate?' }
+        );
 
         if (!choice) {
           return;
@@ -415,7 +407,9 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
-      filesToTranslate = filesToTranslate.filter(f => !currentFsManager.isTranslationFile(f.fsPath));
+      filesToTranslate = filesToTranslate.filter(
+        f => !currentFsManager.isTranslationFile(f.fsPath)
+      );
 
       if (filesToTranslate.length === 0) {
         vscode.window.showInformationMessage('No source Markdown files found to translate');
@@ -424,7 +418,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       const confirm = await vscode.window.showInformationMessage(
         `Translate ${filesToTranslate.length} file(s)?`,
-        'Yes', 'No'
+        'Yes',
+        'No'
       );
 
       if (confirm !== 'Yes') {
@@ -506,7 +501,10 @@ export function activate(context: vscode.ExtensionContext) {
 
                 successCount++;
               } catch (error) {
-                if (error instanceof TranslationError && error.code === TranslationErrorCode.CANCELLED) {
+                if (
+                  error instanceof TranslationError &&
+                  error.code === TranslationErrorCode.CANCELLED
+                ) {
                   break;
                 }
                 console.error(`Error translating ${fileName}:`, error);
@@ -521,9 +519,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       if (signal.aborted) {
-        vscode.window.showInformationMessage(`Batch translation cancelled. Completed: ${successCount}, Errors: ${errorCount}`);
+        vscode.window.showInformationMessage(
+          `Batch translation cancelled. Completed: ${successCount}, Errors: ${errorCount}`
+        );
       } else {
-        vscode.window.showInformationMessage(`Batch translation completed! Success: ${successCount}, Errors: ${errorCount}`);
+        vscode.window.showInformationMessage(
+          `Batch translation completed! Success: ${successCount}, Errors: ${errorCount}`
+        );
       }
     }
   );

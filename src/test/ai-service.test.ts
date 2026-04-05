@@ -20,7 +20,9 @@ suite('AIService Test Suite', () => {
 
     mutableService.translate = async (content: string): Promise<TranslationResult> => {
       calls++;
-      const segmentMatches = [...content.matchAll(/<segment id="(\d+)">\n([\s\S]*?)\n<\/segment>/g)];
+      const segmentMatches = [
+        ...content.matchAll(/<segment id="(\d+)">\n([\s\S]*?)\n<\/segment>/g),
+      ];
       if (segmentMatches.length > 0) {
         return {
           translatedText: segmentMatches
@@ -41,6 +43,9 @@ suite('AIService Test Suite', () => {
       results.map((result: TranslationResult) => result.translatedText),
       ['TRANSLATED:One', 'TRANSLATED:Two', 'TRANSLATED:Three', 'TRANSLATED:Four']
     );
-    assert.ok(calls < paragraphs.length, 'short paragraphs should be grouped into fewer model calls');
+    assert.ok(
+      calls < paragraphs.length,
+      'short paragraphs should be grouped into fewer model calls'
+    );
   });
 });

@@ -122,7 +122,10 @@ export class FileSystemManager {
     const cacheKey = this.getCacheKey(sourcePath, configSignature);
 
     const translationPath = this.getTranslationPath(sourcePath, configSignature);
-    const translationExists = await fs.access(translationPath).then(() => true).catch(() => false);
+    const translationExists = await fs
+      .access(translationPath)
+      .then(() => true)
+      .catch(() => false);
 
     if (!translationExists) {
       return true;
@@ -181,7 +184,7 @@ export class FileSystemManager {
       sourcePath: relativePath,
       configSignature,
       sourceLanguage,
-      paragraphs
+      paragraphs,
     };
 
     await this.writeExtendedMetadata(extended);

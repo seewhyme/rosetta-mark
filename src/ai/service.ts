@@ -7,7 +7,7 @@ import {
   TranslationResult,
   GlossaryEntry,
   TranslationError,
-  TranslationErrorCode
+  TranslationErrorCode,
 } from '../types';
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -110,7 +110,7 @@ Your goal is to provide a clean, accurate translation that preserves all technic
   private buildMessages(systemPrompt: string, content: string) {
     return [
       { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: `Translate the following markdown:\n\n${content}` }
+      { role: 'user' as const, content: `Translate the following markdown:\n\n${content}` },
     ];
   }
 
@@ -161,8 +161,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
       );
     }
 
-    if (lowerMessage.includes('unauthorized') || lowerMessage.includes('401') ||
-      lowerMessage.includes('invalid api key') || lowerMessage.includes('authentication')) {
+    if (
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('401') ||
+      lowerMessage.includes('invalid api key') ||
+      lowerMessage.includes('authentication')
+    ) {
       return new TranslationError(
         'Authentication failed. Please check your API key.',
         TranslationErrorCode.AUTH_ERROR,
@@ -171,8 +175,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
       );
     }
 
-    if (lowerMessage.includes('network') || lowerMessage.includes('econnrefused') ||
-      lowerMessage.includes('timeout') || lowerMessage.includes('enotfound')) {
+    if (
+      lowerMessage.includes('network') ||
+      lowerMessage.includes('econnrefused') ||
+      lowerMessage.includes('timeout') ||
+      lowerMessage.includes('enotfound')
+    ) {
       return new TranslationError(
         'Network error. Please check your connection.',
         TranslationErrorCode.NETWORK_ERROR,
@@ -211,10 +219,7 @@ When the input contains <segment id="N"> ... </segment> blocks:
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       if (signal?.aborted) {
-        throw new TranslationError(
-          'Translation was cancelled.',
-          TranslationErrorCode.CANCELLED
-        );
+        throw new TranslationError('Translation was cancelled.', TranslationErrorCode.CANCELLED);
       }
 
       try {
@@ -227,9 +232,10 @@ When the input contains <segment id="N"> ... </segment> blocks:
         }
 
         if (attempt < maxRetries - 1) {
-          const delay = lastError.code === TranslationErrorCode.RATE_LIMIT
-            ? RATE_LIMIT_DELAY_MS
-            : RETRY_DELAY_MS * Math.pow(2, attempt);
+          const delay =
+            lastError.code === TranslationErrorCode.RATE_LIMIT
+              ? RATE_LIMIT_DELAY_MS
+              : RETRY_DELAY_MS * Math.pow(2, attempt);
 
           console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
           await this.sleep(delay);
@@ -243,47 +249,52 @@ When the input contains <segment id="N"> ... </segment> blocks:
   async translate(content: string, options?: TranslateOptions): Promise<TranslationResult> {
     const { onProgress, signal, glossary, systemPrompt: systemPromptOverride } = options || {};
     const model = this.getProvider();
-    const systemPrompt = systemPromptOverride || this.getSystemPrompt(glossary || this.config.glossary);
+    const systemPrompt =
+      systemPromptOverride || this.getSystemPrompt(glossary || this.config.glossary);
 
-    return this.withRetry(async () => {
-      if (onProgress) {
-        let translatedText = '';
-        const { textStream, usage } = await streamText({
-          model,
-          messages: this.buildMessages(systemPrompt, content),
-          abortSignal: signal,
-        });
+    return this.withRetry(
+      async () => {
+        if (onProgress) {
+          let translatedText = '';
+          const { textStream, usage } = await streamText({
+            model,
+            messages: this.buildMessages(systemPrompt, content),
+            abortSignal: signal,
+          });
 
-        for await (const chunk of textStream) {
-          if (signal?.aborted) {
-            throw new TranslationError(
-              'Translation was cancelled.',
-              TranslationErrorCode.CANCELLED
-            );
+          for await (const chunk of textStream) {
+            if (signal?.aborted) {
+              throw new TranslationError(
+                'Translation was cancelled.',
+                TranslationErrorCode.CANCELLED
+              );
+            }
+            translatedText += chunk;
+            onProgress(chunk);
           }
-          translatedText += chunk;
-          onProgress(chunk);
+
+          const usageData = await usage;
+
+          return {
+            translatedText,
+            tokenUsage: this.convertTokenUsage(usageData),
+          };
+        } else {
+          const { text, usage } = await generateText({
+            model,
+            messages: this.buildMessages(systemPrompt, content),
+            abortSignal: signal,
+          });
+
+          return {
+            translatedText: text,
+            tokenUsage: this.convertTokenUsage(usage),
+          };
         }
-
-        const usageData = await usage;
-
-        return {
-          translatedText,
-          tokenUsage: this.convertTokenUsage(usageData),
-        };
-      } else {
-        const { text, usage } = await generateText({
-          model,
-          messages: this.buildMessages(systemPrompt, content),
-          abortSignal: signal,
-        });
-
-        return {
-          translatedText: text,
-          tokenUsage: this.convertTokenUsage(usage),
-        };
-      }
-    }, DEFAULT_MAX_RETRIES, signal);
+      },
+      DEFAULT_MAX_RETRIES,
+      signal
+    );
   }
 
   async detectLanguage(content: string, cacheKey?: string): Promise<string> {
@@ -303,12 +314,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
         messages: [
           {
             role: 'system',
-            content: `You are a language detection expert. Detect the primary language of the given text and respond with ONLY the language code (e.g., "en" for English, "zh-CN" for Simplified Chinese, "ja" for Japanese, "ko" for Korean, "fr" for French, "de" for German, "es" for Spanish, etc.). Do not include any other text or explanation.`
+            content: `You are a language detection expert. Detect the primary language of the given text and respond with ONLY the language code (e.g., "en" for English, "zh-CN" for Simplified Chinese, "ja" for Japanese, "ko" for Korean, "fr" for French, "de" for German, "es" for Spanish, etc.). Do not include any other text or explanation.`,
           },
           {
             role: 'user',
-            content: `Detect the language of this text:\n\n${content.substring(0, 500)}`
-          }
+            content: `Detect the language of this text:\n\n${content.substring(0, 500)}`,
+          },
         ],
       });
 
@@ -319,7 +330,7 @@ When the input contains <segment id="N"> ... </segment> blocks:
     if (cacheKey) {
       this.languageCache.set(cacheKey, {
         language: result,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
 
@@ -335,45 +346,49 @@ When the input contains <segment id="N"> ... </segment> blocks:
     const model = this.getProvider();
     const systemPrompt = this.buildSystemPrompt(targetLanguage, glossary);
 
-    return this.withRetry(async () => {
-      if (onProgress) {
-        let translatedText = '';
-        const { textStream, usage } = await streamText({
-          model,
-          messages: this.buildMessages(systemPrompt, content),
-          abortSignal: signal,
-        });
+    return this.withRetry(
+      async () => {
+        if (onProgress) {
+          let translatedText = '';
+          const { textStream, usage } = await streamText({
+            model,
+            messages: this.buildMessages(systemPrompt, content),
+            abortSignal: signal,
+          });
 
-        for await (const chunk of textStream) {
-          if (signal?.aborted) {
-            throw new TranslationError(
-              'Translation was cancelled.',
-              TranslationErrorCode.CANCELLED
-            );
+          for await (const chunk of textStream) {
+            if (signal?.aborted) {
+              throw new TranslationError(
+                'Translation was cancelled.',
+                TranslationErrorCode.CANCELLED
+              );
+            }
+            translatedText += chunk;
+            onProgress(chunk);
           }
-          translatedText += chunk;
-          onProgress(chunk);
+
+          const usageData = await usage;
+
+          return {
+            translatedText,
+            tokenUsage: this.convertTokenUsage(usageData),
+          };
+        } else {
+          const { text, usage } = await generateText({
+            model,
+            messages: this.buildMessages(systemPrompt, content),
+            abortSignal: signal,
+          });
+
+          return {
+            translatedText: text,
+            tokenUsage: this.convertTokenUsage(usage),
+          };
         }
-
-        const usageData = await usage;
-
-        return {
-          translatedText,
-          tokenUsage: this.convertTokenUsage(usageData),
-        };
-      } else {
-        const { text, usage } = await generateText({
-          model,
-          messages: this.buildMessages(systemPrompt, content),
-          abortSignal: signal,
-        });
-
-        return {
-          translatedText: text,
-          tokenUsage: this.convertTokenUsage(usage),
-        };
-      }
-    }, DEFAULT_MAX_RETRIES, signal);
+      },
+      DEFAULT_MAX_RETRIES,
+      signal
+    );
   }
 
   async translateParagraphs(
@@ -384,7 +399,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
       maxBatchTokens?: number;
     }
   ): Promise<TranslationResult[]> {
-    const { signal, maxConcurrency = 3, onParagraphProgress, maxBatchTokens = 1200 } = options || {};
+    const {
+      signal,
+      maxConcurrency = 3,
+      onParagraphProgress,
+      maxBatchTokens = 1200,
+    } = options || {};
     const results: TranslationResult[] = new Array(paragraphs.length);
 
     const translateGroup = async (
@@ -413,12 +433,16 @@ When the input contains <segment id="N"> ... </segment> blocks:
         ),
       });
 
-      const segmentMatches = [...batchResult.translatedText.matchAll(/<segment id="(\d+)">\n?([\s\S]*?)\n?<\/segment>/g)];
+      const segmentMatches = [
+        ...batchResult.translatedText.matchAll(/<segment id="(\d+)">\n?([\s\S]*?)\n?<\/segment>/g),
+      ];
       if (segmentMatches.length !== groupedParagraphs.length) {
-        const fallbackResults = await Promise.all(groupedParagraphs.map(async (item, offset) => {
-          const result = await this.translate(item, { signal, glossary: options?.glossary });
-          return { index: startIndex + offset, result };
-        }));
+        const fallbackResults = await Promise.all(
+          groupedParagraphs.map(async (item, offset) => {
+            const result = await this.translate(item, { signal, glossary: options?.glossary });
+            return { index: startIndex + offset, result };
+          })
+        );
 
         fallbackResults.forEach(({ index }) => onParagraphProgress?.(index + 1, paragraphs.length));
         return fallbackResults;
@@ -436,12 +460,9 @@ When the input contains <segment id="N"> ... </segment> blocks:
       return parsedResults;
     };
 
-    for (let i = 0; i < paragraphs.length;) {
+    for (let i = 0; i < paragraphs.length; ) {
       if (signal?.aborted) {
-        throw new TranslationError(
-          'Translation was cancelled.',
-          TranslationErrorCode.CANCELLED
-        );
+        throw new TranslationError('Translation was cancelled.', TranslationErrorCode.CANCELLED);
       }
 
       const groupPromises: Array<Promise<Array<{ index: number; result: TranslationResult }>>> = [];

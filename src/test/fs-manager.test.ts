@@ -46,11 +46,7 @@ suite('FileSystemManager Test Suite', () => {
       'zh-openai'
     );
 
-    const needsTranslation = await manager.needsTranslation(
-      sourcePath,
-      content,
-      'ja-openai'
-    );
+    const needsTranslation = await manager.needsTranslation(sourcePath, content, 'ja-openai');
 
     assert.strictEqual(
       needsTranslation,

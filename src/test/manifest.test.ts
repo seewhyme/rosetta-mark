@@ -11,12 +11,16 @@ suite('Extension Manifest Test Suite', () => {
     const editorTitleMenus = packageJson.contributes?.menus?.['editor/title'] ?? [];
 
     assert.ok(
-      !commands.some((command: { command?: string }) => command.command === 'rosettaMark.reverseTranslate'),
+      !commands.some(
+        (command: { command?: string }) => command.command === 'rosettaMark.reverseTranslate'
+      ),
       'reverse translate command should be removed from contributes.commands'
     );
 
     assert.ok(
-      !editorTitleMenus.some((menu: { command?: string }) => menu.command === 'rosettaMark.reverseTranslate'),
+      !editorTitleMenus.some(
+        (menu: { command?: string }) => menu.command === 'rosettaMark.reverseTranslate'
+      ),
       'reverse translate command should be removed from editor/title menu'
     );
   });

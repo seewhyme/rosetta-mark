@@ -9,13 +9,18 @@ export class ConfigManager {
     this.context = context;
   }
 
-  private getConfigValue<T>(config: vscode.WorkspaceConfiguration, key: string, defaultValue: T): T {
+  private getConfigValue<T>(
+    config: vscode.WorkspaceConfiguration,
+    key: string,
+    defaultValue: T
+  ): T {
     const inspection = config.inspect<T>(key);
     return inspection?.workspaceValue ?? inspection?.globalValue ?? defaultValue;
   }
 
   async getConfig(): Promise<TranslationConfig> {
-    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } = this.getTranslationSettings();
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } =
+      this.getTranslationSettings();
 
     const apiKey = await this.getApiKey();
     if (!apiKey) {
@@ -34,7 +39,8 @@ export class ConfigManager {
   }
 
   async getConfigWithApiKey(apiKey: string): Promise<TranslationConfig> {
-    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } = this.getTranslationSettings();
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } =
+      this.getTranslationSettings();
 
     return {
       provider,

@@ -176,26 +176,20 @@ export class MarkdownParser {
     }
 
     // 提取代码块并替换为占位符
-    let translatableText = content.replace(
-      /```[\s\S]*?```/g,
-      (match) => {
-        const placeholder = `__CODE_BLOCK_${placeholderIndex}__`;
-        codeBlocks.set(placeholder, match);
-        placeholderIndex++;
-        return placeholder;
-      }
-    );
+    let translatableText = content.replace(/```[\s\S]*?```/g, match => {
+      const placeholder = `__CODE_BLOCK_${placeholderIndex}__`;
+      codeBlocks.set(placeholder, match);
+      placeholderIndex++;
+      return placeholder;
+    });
 
     // 提取行内代码并替换为占位符
-    translatableText = translatableText.replace(
-      /`[^`\n]+`/g,
-      (match) => {
-        const placeholder = `__INLINE_CODE_${placeholderIndex}__`;
-        codeBlocks.set(placeholder, match);
-        placeholderIndex++;
-        return placeholder;
-      }
-    );
+    translatableText = translatableText.replace(/`[^`\n]+`/g, match => {
+      const placeholder = `__INLINE_CODE_${placeholderIndex}__`;
+      codeBlocks.set(placeholder, match);
+      placeholderIndex++;
+      return placeholder;
+    });
 
     return {
       translatableText,
@@ -252,9 +246,8 @@ export class MarkdownParser {
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         const startOffset = node.position?.start?.offset;
-        const endOffset = i + 1 < nodes.length
-          ? nodes[i + 1].position?.start?.offset
-          : content.length;
+        const endOffset =
+          i + 1 < nodes.length ? nodes[i + 1].position?.start?.offset : content.length;
 
         if (startOffset === undefined || endOffset === undefined) {
           return this.splitIntoParagraphsWithLines(content);

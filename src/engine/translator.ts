@@ -5,7 +5,7 @@ import {
   TranslationResult,
   ParagraphMapping,
   IncrementalTranslationResult,
-  TranslationProgress
+  TranslationProgress,
 } from '../types';
 
 export interface TranslationWithMapping {
@@ -32,7 +32,10 @@ export class TranslationEngine {
     this.parser = new MarkdownParser();
   }
 
-  async translate(content: string, onProgress?: (chunk: string) => void): Promise<TranslationResult> {
+  async translate(
+    content: string,
+    onProgress?: (chunk: string) => void
+  ): Promise<TranslationResult> {
     // 提取代码块
     const extracted = this.parser.extractTextForTranslation(content);
 
@@ -120,7 +123,10 @@ export class TranslationEngine {
     }
     flushCurrentGroup();
 
-    const paragraphsToTranslateCount = translationGroups.reduce((count, group) => count + group.length, 0);
+    const paragraphsToTranslateCount = translationGroups.reduce(
+      (count, group) => count + group.length,
+      0
+    );
     const reusedCount = totalParagraphs - paragraphsToTranslateCount;
     const totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
@@ -142,7 +148,7 @@ export class TranslationEngine {
           signal,
           maxConcurrency,
           glossary: this.config.glossary,
-          onParagraphProgress: (current) => {
+          onParagraphProgress: current => {
             onProgress?.({
               current: reusedCount + translatedCount + current,
               total: totalParagraphs,
@@ -177,9 +183,7 @@ export class TranslationEngine {
     });
 
     // 组合最终翻译结果
-    const translatedText = resultParagraphs
-      .map(p => p.translatedContent)
-      .join('\n\n');
+    const translatedText = resultParagraphs.map(p => p.translatedContent).join('\n\n');
 
     return {
       translatedText,
@@ -202,7 +206,7 @@ export class TranslationEngine {
     let accumulatedText = '';
     const result = await this.translateIncremental(content, {
       signal,
-      onProgress: (progress) => {
+      onProgress: progress => {
         if (progress.phase === 'translating' && onProgress) {
           const newText = progress.message;
           if (newText !== accumulatedText) {
@@ -259,7 +263,11 @@ export class TranslationEngine {
   /**
    * 检查文档大小
    */
-  checkDocumentSize(content: string): { valid: boolean; estimatedTokens: number; message?: string } {
+  checkDocumentSize(content: string): {
+    valid: boolean;
+    estimatedTokens: number;
+    message?: string;
+  } {
     const estimatedTokens = this.parser.estimateTokens(content);
     const maxTokens = 100000;
 
