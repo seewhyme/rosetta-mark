@@ -1,5 +1,5 @@
 import { AIService } from '../ai/service';
-import { MarkdownParser, ParsedParagraph } from './parser';
+import { MarkdownParser } from './parser';
 import {
   TranslationConfig,
   TranslationResult,
@@ -79,26 +79,15 @@ export class TranslationEngine {
       }
     }
 
-    type PendingTranslationGroup = Array<{ index: number; paragraph: ParsedParagraph }>;
-
-    // 找出需要翻译的段落
-    const translationGroups: PendingTranslationGroup[] = [];
+    // 扁平化：所有待翻译段落进入同一个全局并发池，不再按 group 串行
+    const pendingParagraphs: Array<{ originalIndex: number; content: string }> = [];
     const resultParagraphs: ParagraphMapping[] = [];
-    let currentGroup: PendingTranslationGroup = [];
-
-    const flushCurrentGroup = () => {
-      if (currentGroup.length > 0) {
-        translationGroups.push(currentGroup);
-        currentGroup = [];
-      }
-    };
 
     for (let i = 0; i < currentParagraphs.length; i++) {
       const paragraph = currentParagraphs[i];
 
       // 代码块和 frontmatter 不需要翻译
       if (paragraph.type !== 'text') {
-        flushCurrentGroup();
         resultParagraphs.push({
           sourceContent: paragraph.content,
           translatedContent: paragraph.content,
@@ -110,10 +99,9 @@ export class TranslationEngine {
       // 检查是否有现有翻译
       const existing = existingHashMap.get(paragraph.hash);
       if (existing) {
-        flushCurrentGroup();
         resultParagraphs.push(existing);
       } else {
-        currentGroup.push({ index: i, paragraph });
+        pendingParagraphs.push({ originalIndex: i, content: paragraph.content });
         resultParagraphs.push({
           sourceContent: paragraph.content,
           translatedContent: '', // 待填充
@@ -121,12 +109,8 @@ export class TranslationEngine {
         });
       }
     }
-    flushCurrentGroup();
 
-    const paragraphsToTranslateCount = translationGroups.reduce(
-      (count, group) => count + group.length,
-      0
-    );
+    const paragraphsToTranslateCount = pendingParagraphs.length;
     const reusedCount = totalParagraphs - paragraphsToTranslateCount;
     const totalTokenUsage = { prompt: 0, completion: 0, total: 0 };
 
@@ -137,41 +121,36 @@ export class TranslationEngine {
       message: `Reusing ${reusedCount} cached paragraphs, translating ${paragraphsToTranslateCount}...`,
     });
 
-    // 并行翻译需要翻译的段落
-    if (translationGroups.length > 0) {
-      let translatedCount = 0;
-
-      for (const group of translationGroups) {
-        const textsToTranslate = group.map(item => item.paragraph.content);
-
-        const results = await this.aiService.translateParagraphs(textsToTranslate, {
+    // 全局并行翻译——一次性交给 AIService，避免被代码块/缓存段落切断并发窗口
+    if (pendingParagraphs.length > 0) {
+      const results = await this.aiService.translateParagraphs(
+        pendingParagraphs.map(p => p.content),
+        {
           signal,
           maxConcurrency,
           glossary: this.config.glossary,
           onParagraphProgress: current => {
             onProgress?.({
-              current: reusedCount + translatedCount + current,
+              current: reusedCount + current,
               total: totalParagraphs,
               phase: 'translating',
-              message: `Translating paragraph ${translatedCount + current}/${paragraphsToTranslateCount}...`,
+              message: `Translating ${current}/${paragraphsToTranslateCount}...`,
             });
           },
-        });
-
-        for (let i = 0; i < group.length; i++) {
-          const { index } = group[i];
-          const result = results[i];
-
-          resultParagraphs[index].translatedContent = result.translatedText;
-
-          if (result.tokenUsage) {
-            totalTokenUsage.prompt += result.tokenUsage.prompt;
-            totalTokenUsage.completion += result.tokenUsage.completion;
-            totalTokenUsage.total += result.tokenUsage.total;
-          }
         }
+      );
 
-        translatedCount += group.length;
+      for (let k = 0; k < pendingParagraphs.length; k++) {
+        const { originalIndex } = pendingParagraphs[k];
+        const result = results[k];
+
+        resultParagraphs[originalIndex].translatedContent = result.translatedText;
+
+        if (result.tokenUsage) {
+          totalTokenUsage.prompt += result.tokenUsage.prompt;
+          totalTokenUsage.completion += result.tokenUsage.completion;
+          totalTokenUsage.total += result.tokenUsage.total;
+        }
       }
     }
 

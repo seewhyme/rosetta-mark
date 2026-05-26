@@ -85,7 +85,8 @@ You can configure Rosetta Mark globally (for all projects) in two ways:
 | `rosettaMark.targetLanguage` | string | `zh-CN` | Target language code (e.g., `zh-CN`, `en`, `ja`, `es`) |
 | `rosettaMark.baseUrl` | string | `""` | Custom API base URL (for proxies or OpenAI-compatible APIs) |
 | `rosettaMark.previewMode` | string | `preview` | Display mode: `editor` (split view), `preview` (split view), or `both` (editor + preview) |
-| `rosettaMark.maxConcurrency` | number | `3` | Max parallel translations (1-10) |
+| `rosettaMark.maxConcurrency` | number | `4` | Max parallel translation requests (1-16). See [Performance Tuning](#performance-tuning). |
+| `rosettaMark.maxBatchTokens` | number | `4000` | Max estimated tokens per batched request (chars/4). See [Performance Tuning](#performance-tuning). |
 | `rosettaMark.glossary` | array | `[]` | Custom terminology for consistent translation |
 
 ### Glossary Configuration
@@ -172,6 +173,44 @@ All translations are stored in `.rosetta-mark/` directory in your workspace, mai
   "rosettaMark.baseUrl": "http://localhost:11434/v1"
 }
 ```
+
+## Performance Tuning
+
+The defaults (`maxConcurrency=4`, `maxBatchTokens=4000`) are a safe middle ground that works well across all providers and document sizes. If you translate large documents frequently and want to squeeze out more speed, tune these two settings based on your provider and model.
+
+### How they interact
+
+- **`maxBatchTokens`** controls how many paragraphs are merged into a single request. Larger = fewer requests, but each request takes longer to generate.
+- **`maxConcurrency`** controls how many requests run in parallel. More workers help only when there are enough batches to feed them.
+
+The two settings interact: if `maxBatchTokens` is large, the whole document may fit in just 1–2 batches, and extra workers will sit idle. If `maxBatchTokens` is too small, prompt overhead is repeated many times and the batch-level latency floor adds up.
+
+### Per-provider recommendations
+
+| Provider / Model | `maxConcurrency` | `maxBatchTokens` | Notes |
+|---|---|---|---|
+| **OpenRouter `:nitro` fast models** (e.g. `google/gemini-3.1-flash-lite:nitro`) | `8` | `2500–3000` | Highest throughput; nitro routing handles high concurrency well |
+| OpenAI / Azure OpenAI | `4–8` | `4000` | Defaults are fine; `gpt-4o-mini` style models scale to 8 |
+| Anthropic Claude | `4` | `4000` | Anthropic has stricter per-key rate limits |
+| OpenRouter (standard) / DeepSeek | `3–4` | `4000` | Going above 4 often gets throttled per upstream provider |
+| Ollama (local) | `1–2` | `2000` | Local hardware is the bottleneck; large batches hold memory longer |
+
+### Real-world benchmark
+
+A 54 KB / 190-paragraph README translated end-to-end (155 paragraphs needing translation, 35 reused as code/frontmatter):
+
+| Model | `maxConcurrency` | `maxBatchTokens` | Time |
+|---|---|---|---|
+| `google/gemini-3.1-flash-lite:nitro` | 8 | 3000 | **12.3s** |
+| `google/gemini-3.1-flash-lite:nitro` | 4 | 4000 | 17.5s |
+| `gpt-4o-mini` class | 4 | 4000 | ~40s |
+| `deepseek/deepseek-v4-flash` | 4 | 4000 | ~60s |
+
+### Quick rules
+
+- If translations feel slow on a fast cloud model: try lowering `maxBatchTokens` to `2500` first, then raising `maxConcurrency` to `8`.
+- If you hit 429 rate-limit errors: lower `maxConcurrency` to `2–3`, keep `maxBatchTokens` at `4000` or higher to compensate.
+- Incremental re-translation is mostly limited by the number of *changed* paragraphs, not these settings — small edits to a long document complete in seconds regardless.
 
 ## Troubleshooting
 

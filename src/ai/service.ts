@@ -18,7 +18,6 @@ export interface TranslateOptions {
   onProgress?: (chunk: string) => void;
   signal?: AbortSignal;
   glossary?: GlossaryEntry[];
-  systemPrompt?: string;
 }
 
 interface TokenUsageLike {
@@ -83,45 +82,28 @@ export class AIService {
   }
 
   private buildSystemPrompt(targetLanguage: string, glossary?: GlossaryEntry[]): string {
-    let prompt = `You are a professional technical translator. Translate the markdown content to ${targetLanguage}.
-
-RULES:
-1. Preserve Markdown structure, spacing, line breaks, lists, headings, and tables.
-2. Keep code snippets, placeholders, and inline literals unchanged.
-3. Do not add explanations or extra content.
-4. Output only the translated Markdown.
-
-Your goal is to provide a clean, accurate translation that preserves all technical elements and formatting.`;
+    let prompt =
+      `Translate Markdown to ${targetLanguage}. ` +
+      `Preserve all Markdown syntax, spacing, code blocks, inline literals, placeholders, HTML/XML tags, and segment ids. ` +
+      `Do not translate code, identifiers inside code, Markdown punctuation, placeholders, or HTML/XML tags. ` +
+      `If <segment id="N"> blocks are present, translate only their inner text and keep tags/order unchanged. ` +
+      `Return only the translated Markdown.`;
 
     if (glossary && glossary.length > 0) {
-      prompt += '\n\nGLOSSARY - Use these exact translations for the following terms:\n';
+      prompt += '\nGlossary:\n';
       for (const entry of glossary) {
-        prompt += `- "${entry.source}" → "${entry.target}"${entry.caseSensitive ? ' (case-sensitive)' : ''}\n`;
+        prompt += `${entry.source} → ${entry.target}${entry.caseSensitive ? ' (cs)' : ''}\n`;
       }
     }
 
     return prompt;
   }
 
-  private getSystemPrompt(glossary?: GlossaryEntry[]): string {
-    return this.buildSystemPrompt(this.config.targetLanguage, glossary);
-  }
-
   private buildMessages(systemPrompt: string, content: string) {
     return [
       { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: `Translate the following markdown:\n\n${content}` },
+      { role: 'user' as const, content },
     ];
-  }
-
-  private buildBatchSystemPrompt(targetLanguage: string, glossary?: GlossaryEntry[]): string {
-    return `${this.buildSystemPrompt(targetLanguage, glossary)}
-
-When the input contains <segment id="N"> ... </segment> blocks:
-- translate only the content inside each segment
-- keep every segment tag and id unchanged
-- preserve segment order
-- return all segments in the same format`;
   }
 
   private estimateTokens(content: string): number {
@@ -247,10 +229,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
   }
 
   async translate(content: string, options?: TranslateOptions): Promise<TranslationResult> {
-    const { onProgress, signal, glossary, systemPrompt: systemPromptOverride } = options || {};
+    const { onProgress, signal, glossary } = options || {};
     const model = this.getProvider();
-    const systemPrompt =
-      systemPromptOverride || this.getSystemPrompt(glossary || this.config.glossary);
+    const systemPrompt = this.buildSystemPrompt(
+      this.config.targetLanguage,
+      glossary || this.config.glossary
+    );
 
     return this.withRetry(
       async () => {
@@ -314,11 +298,12 @@ When the input contains <segment id="N"> ... </segment> blocks:
         messages: [
           {
             role: 'system',
-            content: `You are a language detection expert. Detect the primary language of the given text and respond with ONLY the language code (e.g., "en" for English, "zh-CN" for Simplified Chinese, "ja" for Japanese, "ko" for Korean, "fr" for French, "de" for German, "es" for Spanish, etc.). Do not include any other text or explanation.`,
+            content:
+              'Return only the BCP-47 language code of the input (e.g. en, zh-CN, ja). No other output.',
           },
           {
             role: 'user',
-            content: `Detect the language of this text:\n\n${content.substring(0, 500)}`,
+            content: content.substring(0, 500),
           },
         ],
       });
@@ -395,101 +380,118 @@ When the input contains <segment id="N"> ... </segment> blocks:
     paragraphs: string[],
     options?: TranslateOptions & {
       maxConcurrency?: number;
-      onParagraphProgress?: (index: number, total: number) => void;
+      onParagraphProgress?: (current: number, total: number) => void;
       maxBatchTokens?: number;
     }
   ): Promise<TranslationResult[]> {
     const {
       signal,
-      maxConcurrency = 3,
+      maxConcurrency = this.config.maxConcurrency ?? 4,
       onParagraphProgress,
-      maxBatchTokens = 1200,
+      maxBatchTokens = this.config.maxBatchTokens ?? 4000,
     } = options || {};
+    const glossary = options?.glossary;
+
     const results: TranslationResult[] = new Array(paragraphs.length);
 
-    const translateGroup = async (
-      groupedParagraphs: string[],
-      startIndex: number
-    ): Promise<Array<{ index: number; result: TranslationResult }>> => {
-      if (groupedParagraphs.length === 1) {
-        const result = await this.translate(groupedParagraphs[0], {
-          signal,
-          glossary: options?.glossary,
-        });
-        onParagraphProgress?.(startIndex + 1, paragraphs.length);
-        return [{ index: startIndex, result }];
+    // 1. 预先构建静态 batch 队列
+    type Batch = { startIndex: number; items: string[] };
+    const batches: Batch[] = [];
+    let i = 0;
+    while (i < paragraphs.length) {
+      const startIndex = i;
+      const items = [paragraphs[i]];
+      let tokens = this.estimateTokens(paragraphs[i]);
+      i++;
+      while (
+        i < paragraphs.length &&
+        tokens + this.estimateTokens(paragraphs[i]) <= maxBatchTokens
+      ) {
+        items.push(paragraphs[i]);
+        tokens += this.estimateTokens(paragraphs[i]);
+        i++;
       }
+      batches.push({ startIndex, items });
+    }
 
-      const taggedContent = groupedParagraphs
-        .map((item, offset) => `<segment id="${startIndex + offset}">\n${item}\n</segment>`)
-        .join('\n\n');
+    let cursor = 0;
+    let completed = 0;
 
-      const batchResult = await this.translate(taggedContent, {
-        signal,
-        glossary: options?.glossary,
-        systemPrompt: this.buildBatchSystemPrompt(
-          this.config.targetLanguage,
-          options?.glossary || this.config.glossary
-        ),
-      });
-
-      const segmentMatches = [
-        ...batchResult.translatedText.matchAll(/<segment id="(\d+)">\n?([\s\S]*?)\n?<\/segment>/g),
-      ];
-      if (segmentMatches.length !== groupedParagraphs.length) {
-        const fallbackResults = await Promise.all(
-          groupedParagraphs.map(async (item, offset) => {
-            const result = await this.translate(item, { signal, glossary: options?.glossary });
-            return { index: startIndex + offset, result };
-          })
-        );
-
-        fallbackResults.forEach(({ index }) => onParagraphProgress?.(index + 1, paragraphs.length));
-        return fallbackResults;
-      }
-
-      const parsedResults = segmentMatches.map(([, id, text], offset) => ({
-        index: Number(id),
-        result: {
-          translatedText: text,
-          tokenUsage: offset === 0 ? batchResult.tokenUsage : undefined,
-        },
-      }));
-
-      parsedResults.forEach(({ index }) => onParagraphProgress?.(index + 1, paragraphs.length));
-      return parsedResults;
+    const finish = (index: number, result: TranslationResult) => {
+      results[index] = result;
+      completed++;
+      onParagraphProgress?.(completed, paragraphs.length);
     };
 
-    for (let i = 0; i < paragraphs.length; ) {
+    const checkAbort = () => {
       if (signal?.aborted) {
         throw new TranslationError('Translation was cancelled.', TranslationErrorCode.CANCELLED);
       }
+    };
 
-      const groupPromises: Array<Promise<Array<{ index: number; result: TranslationResult }>>> = [];
+    // 2. 单段翻译（worker 内复用）
+    const translateOne = async (index: number, content: string) => {
+      finish(index, await this.translate(content, { signal, glossary }));
+    };
 
-      for (let groupCount = 0; groupCount < maxConcurrency && i < paragraphs.length; groupCount++) {
-        const startIndex = i;
-        const groupedParagraphs = [paragraphs[i]];
-        let groupedTokens = this.estimateTokens(paragraphs[i]);
-        i++;
+    // 3. batch 翻译：成功段直接 finish，失败段在当前 worker 内串行 repair
+    //    （不裸 Promise.all，避免突破 maxConcurrency）
+    const translateBatch = async (batch: Batch) => {
+      if (batch.items.length === 1) {
+        await translateOne(batch.startIndex, batch.items[0]);
+        return;
+      }
 
-        while (
-          i < paragraphs.length &&
-          groupedTokens + this.estimateTokens(paragraphs[i]) <= maxBatchTokens
-        ) {
-          groupedParagraphs.push(paragraphs[i]);
-          groupedTokens += this.estimateTokens(paragraphs[i]);
-          i++;
+      const tagged = batch.items
+        .map((c, o) => `<segment id="${batch.startIndex + o}">\n${c}\n</segment>`)
+        .join('\n\n');
+
+      const batchResult = await this.translate(tagged, { signal, glossary });
+
+      const matches = new Map<number, string>();
+      for (const m of batchResult.translatedText.matchAll(
+        /<segment\s+id="(\d+)"\s*>\s*([\s\S]*?)\s*<\/segment>/g
+      )) {
+        matches.set(Number(m[1]), m[2]);
+      }
+
+      const missing: Array<{ index: number; content: string }> = [];
+      let firstSuccess = true;
+      for (let o = 0; o < batch.items.length; o++) {
+        const idxAbs = batch.startIndex + o;
+        const text = matches.get(idxAbs);
+        if (text !== undefined) {
+          finish(idxAbs, {
+            translatedText: text,
+            tokenUsage: firstSuccess ? batchResult.tokenUsage : undefined,
+          });
+          firstSuccess = false;
+        } else {
+          missing.push({ index: idxAbs, content: batch.items[o] });
         }
-
-        groupPromises.push(translateGroup(groupedParagraphs, startIndex));
       }
 
-      const flattenedResults = (await Promise.all(groupPromises)).flat();
-      for (const { index, result } of flattenedResults) {
-        results[index] = result;
+      // 当前 worker 内串行修复——天然受 maxConcurrency 限制，行为简单可预测
+      for (const m of missing) {
+        checkAbort();
+        await translateOne(m.index, m.content);
       }
-    }
+    };
+
+    // 4. worker pool：N 个常驻 worker 共享静态队列，无批屏障
+    const worker = async () => {
+      for (;;) {
+        checkAbort();
+        const idx = cursor++;
+        if (idx >= batches.length) {
+          return;
+        }
+        await translateBatch(batches[idx]);
+      }
+    };
+
+    const workerCount = Math.min(maxConcurrency, batches.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
     return results;
   }

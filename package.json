@@ -152,10 +152,17 @@
         },
         "rosettaMark.maxConcurrency": {
           "type": "number",
-          "default": 3,
+          "default": 4,
           "minimum": 1,
-          "maximum": 10,
-          "description": "Maximum number of paragraphs to translate in parallel"
+          "maximum": 16,
+          "description": "Maximum concurrent translation requests. Recommended: cloud providers 4-8, OpenRouter/DeepSeek 3-4 (stricter rate limits), local Ollama 1-2."
+        },
+        "rosettaMark.maxBatchTokens": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 500,
+          "maximum": 32000,
+          "description": "Maximum estimated tokens per batched request, calculated as roughly characters / 4. For example, 4000 means about 16000 characters before Markdown/segment overhead."
         },
         "rosettaMark.glossary": {
           "type": "array",

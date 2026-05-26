@@ -1,5 +1,11 @@
 .vscode/**
 .vscode-test/**
+.env
+.env.*
+.DS_Store
+.claude/**
+.cursor/**
+.worktrees/**
 src/**
 .github/**
 .gitignore

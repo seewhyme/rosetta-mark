@@ -19,7 +19,7 @@ export class ConfigManager {
   }
 
   async getConfig(): Promise<TranslationConfig> {
-    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } =
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, maxBatchTokens, glossary } =
       this.getTranslationSettings();
 
     const apiKey = await this.getApiKey();
@@ -34,12 +34,13 @@ export class ConfigManager {
       baseUrl: baseUrl || undefined,
       targetLanguage,
       maxConcurrency,
+      maxBatchTokens,
       glossary: glossary.length > 0 ? glossary : undefined,
     };
   }
 
   async getConfigWithApiKey(apiKey: string): Promise<TranslationConfig> {
-    const { provider, model, baseUrl, targetLanguage, maxConcurrency, glossary } =
+    const { provider, model, baseUrl, targetLanguage, maxConcurrency, maxBatchTokens, glossary } =
       this.getTranslationSettings();
 
     return {
@@ -49,6 +50,7 @@ export class ConfigManager {
       baseUrl: baseUrl || undefined,
       targetLanguage,
       maxConcurrency,
+      maxBatchTokens,
       glossary: glossary.length > 0 ? glossary : undefined,
     };
   }
@@ -59,6 +61,7 @@ export class ConfigManager {
     baseUrl: string;
     targetLanguage: string;
     maxConcurrency: number;
+    maxBatchTokens: number;
     glossary: GlossaryEntry[];
   } {
     const config = vscode.workspace.getConfiguration('rosettaMark');
@@ -66,7 +69,8 @@ export class ConfigManager {
     const model = this.getConfigValue<string>(config, 'model', 'gpt-4o-mini');
     const baseUrl = this.getConfigValue<string>(config, 'baseUrl', '');
     const targetLanguage = this.getConfigValue<string>(config, 'targetLanguage', 'zh-CN');
-    const maxConcurrency = this.getConfigValue<number>(config, 'maxConcurrency', 3);
+    const maxConcurrency = this.getConfigValue<number>(config, 'maxConcurrency', 4);
+    const maxBatchTokens = this.getConfigValue<number>(config, 'maxBatchTokens', 4000);
     const glossary = this.getConfigValue<GlossaryEntry[]>(config, 'glossary', []);
     return {
       provider,
@@ -74,6 +78,7 @@ export class ConfigManager {
       baseUrl,
       targetLanguage,
       maxConcurrency,
+      maxBatchTokens,
       glossary,
     };
   }

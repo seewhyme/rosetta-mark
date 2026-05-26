@@ -10,6 +10,7 @@ export interface TranslationConfig {
   targetLanguage: string;
   glossary?: GlossaryEntry[];
   maxConcurrency?: number;
+  maxBatchTokens?: number;
 }
 
 export interface TranslationResult {
