@@ -63,7 +63,7 @@
         "command": "rosettaMark.translate",
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
-        "when": "editorLangId == markdown"
+        "when": "editorLangId == markdown || resourceExtname == .md"
       },
       {
         "command": "rosettaMark.translateSelection",
@@ -81,14 +81,14 @@
       "editor/title": [
         {
           "command": "rosettaMark.translate",
-          "when": "resourceLangId == markdown && !resourcePath =~ /\\.rosetta-mark/",
+          "when": "(resourceLangId == markdown || resourceExtname == .md) && !resourcePath =~ /\\.rosetta-mark/",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "command": "rosettaMark.translate",
-          "when": "resourceLangId == markdown && !resourcePath =~ /\\.rosetta-mark/",
+          "when": "(resourceLangId == markdown || resourceExtname == .md) && !resourcePath =~ /\\.rosetta-mark/",
           "group": "1_modification"
         },
         {
@@ -100,7 +100,7 @@
       "explorer/context": [
         {
           "command": "rosettaMark.batchTranslate",
-          "when": "resourceLangId == markdown || explorerResourceIsFolder",
+          "when": "resourceLangId == markdown || resourceExtname == .md || explorerResourceIsFolder",
           "group": "7_modification"
         }
       ]

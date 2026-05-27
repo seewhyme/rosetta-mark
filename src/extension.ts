@@ -18,6 +18,14 @@ function getOrCreateFsManager(workspaceRoot: string): FileSystemManager {
   return fsManager;
 }
 
+function isMarkdownUri(uri: vscode.Uri): boolean {
+  return path.extname(uri.fsPath).toLowerCase() === '.md';
+}
+
+function isMarkdownDocument(document: vscode.TextDocument): boolean {
+  return document.languageId === 'markdown' || isMarkdownUri(document.uri);
+}
+
 function updateStatusBar(text: string, tooltip?: string, command?: string): void {
   statusBarItem.text = text;
   statusBarItem.tooltip = tooltip;
@@ -224,7 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    if (editor.document.languageId !== 'markdown') {
+    if (!isMarkdownDocument(editor.document)) {
       vscode.window.showErrorMessage('Current file is not a Markdown file');
       return;
     }
@@ -356,7 +364,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (uris && uris.length > 0) {
         // Multiple files selected in explorer
-        filesToTranslate = uris.filter(u => u.fsPath.endsWith('.md'));
+        filesToTranslate = uris.filter(isMarkdownUri);
       } else if (uri) {
         // Single file or folder
         const stat = await vscode.workspace.fs.stat(uri);
@@ -364,7 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
           // Find all markdown files in directory
           const pattern = new vscode.RelativePattern(uri, '**/*.md');
           filesToTranslate = await vscode.workspace.findFiles(pattern);
-        } else if (uri.fsPath.endsWith('.md')) {
+        } else if (isMarkdownUri(uri)) {
           filesToTranslate = [uri];
         }
       } else {
@@ -383,7 +391,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (choice.value === 'current') {
           const editor = vscode.window.activeTextEditor;
-          if (editor && editor.document.languageId === 'markdown') {
+          if (editor && isMarkdownDocument(editor.document)) {
             filesToTranslate = [editor.document.uri];
           } else {
             vscode.window.showErrorMessage('No Markdown file is currently open');
