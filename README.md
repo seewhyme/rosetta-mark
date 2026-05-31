@@ -88,6 +88,8 @@ You can configure Rosetta Mark globally (for all projects) in two ways:
 | `rosettaMark.maxConcurrency` | number | `4` | Max parallel translation requests (1-16). See [Performance Tuning](#performance-tuning). |
 | `rosettaMark.maxBatchTokens` | number | `4000` | Max estimated tokens per batched request (chars/4). See [Performance Tuning](#performance-tuning). |
 | `rosettaMark.glossary` | array | `[]` | Custom terminology for consistent translation |
+| `rosettaMark.cache.retentionDays` | number | `30` | Days to keep unused cached translations. Set to `0` to disable age-based cleanup. |
+| `rosettaMark.cache.maxSizeMB` | number | `500` | Maximum translation cache size per workspace. Set to `0` to disable size-based cleanup. |
 
 ### Glossary Configuration
 
@@ -124,7 +126,7 @@ Add custom terminology to ensure consistent translations:
 The extension will:
 - ✅ Check if translation is needed (using file hash)
 - 🔄 Translate the content while preserving formatting
-- 💾 Save to `.rosetta-mark/` directory
+- 💾 Save to VS Code's workspace storage
 - 👀 Open the translation in a split view
 
 ![Split View Preview](images/screenshot-preview.png)
@@ -137,7 +139,11 @@ The extension will:
 
 ## Translation Cache
 
-All translations are stored in `.rosetta-mark/` directory in your workspace, maintaining the same directory structure as your source files. The extension tracks file hashes to detect changes and only re-translates when necessary.
+Translations are stored in VS Code's workspace storage, not in your project directory, so projects do not need a `.gitignore` entry for Rosetta Mark output. The cache still mirrors the source file structure and is isolated by workspace and translation configuration.
+
+Rosetta Mark automatically cleans the current workspace cache on extension startup and after saving a translation. By default it removes cached translations that have not been used for 30 days and keeps the workspace cache under 500 MB. Run `Rosetta Mark: Clean Translation Cache` from the Command Palette to clean expired entries or clear all cached translations for the current workspace.
+
+If an old project-local `.rosetta-mark/` cache exists, Rosetta Mark copies it into VS Code storage the first time the workspace is used. It does not delete the old project-local folder automatically.
 
 ## Supported Providers
 

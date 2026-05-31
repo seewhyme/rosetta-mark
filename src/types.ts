@@ -35,6 +35,9 @@ export interface TranslationMetadata {
   sourceLanguage?: string; // 检测到的原文语言
   paragraphs: ParagraphMapping[]; // 段落对应关系
   detectedAt?: number; // 语言检测时间戳
+  savedAt?: number; // 翻译保存时间
+  lastAccessedAt?: number; // 最近使用时间，用于缓存清理
+  sizeBytes?: number; // 翻译文件大小，用于缓存大小限制
 }
 
 export interface GlossaryEntry {

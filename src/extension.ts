@@ -2,20 +2,133 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigManager } from './config/manager';
-import { FileSystemManager } from './fs/manager';
+import { CacheCleanupResult, FileSystemManager } from './fs/manager';
 import { TranslationEngine } from './engine/translator';
 import { PreviewMode, TranslationError, TranslationErrorCode, TranslationProgress } from './types';
 
 let configManager: ConfigManager;
-let fsManager: FileSystemManager | null = null;
+let extensionContext: vscode.ExtensionContext;
+const fsManagers = new Map<string, FileSystemManager>();
 let statusBarItem: vscode.StatusBarItem;
 let currentTranslationController: AbortController | null = null;
 
-function getOrCreateFsManager(workspaceRoot: string): FileSystemManager {
-  if (!fsManager) {
-    fsManager = new FileSystemManager(workspaceRoot);
+function getStorageRoot(context: vscode.ExtensionContext): string {
+  if (context.storageUri) {
+    return context.storageUri.fsPath;
   }
-  return fsManager;
+  return path.join(context.globalStorageUri.fsPath, 'workspace-fallback');
+}
+
+function getOrCreateFsManager(workspaceRoot: string): FileSystemManager {
+  const storageRoot = getStorageRoot(extensionContext);
+  const managerKey = `${workspaceRoot}:${storageRoot}`;
+  let manager = fsManagers.get(managerKey);
+
+  if (!manager) {
+    manager = new FileSystemManager(workspaceRoot, storageRoot);
+    fsManagers.set(managerKey, manager);
+  }
+
+  return manager;
+}
+
+async function prepareFsManager(workspaceRoot: string): Promise<FileSystemManager> {
+  const manager = getOrCreateFsManager(workspaceRoot);
+
+  try {
+    await manager.migrateLegacyCacheIfNeeded();
+  } catch (error) {
+    console.warn('Failed to migrate legacy translation cache:', error);
+  }
+
+  return manager;
+}
+
+async function getFsManagerForUri(uri: vscode.Uri): Promise<FileSystemManager | null> {
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!workspaceFolder) {
+    return null;
+  }
+
+  return prepareFsManager(workspaceFolder.uri.fsPath);
+}
+
+function getCacheCleanupSettings(): {
+  retentionDays: number;
+  maxSizeMB: number;
+} {
+  const settings = configManager.getCacheSettings();
+  return {
+    retentionDays: Math.max(0, settings.retentionDays),
+    maxSizeMB: Math.max(0, settings.maxSizeMB),
+  };
+}
+
+async function cleanCacheQuietly(
+  manager: FileSystemManager,
+  protectedPaths: string[] = []
+): Promise<CacheCleanupResult | null> {
+  try {
+    return await manager.cleanCache({
+      ...getCacheCleanupSettings(),
+      protectedPaths,
+    });
+  } catch (error) {
+    console.warn('Failed to clean translation cache:', error);
+    return null;
+  }
+}
+
+async function runStartupCacheMaintenance(): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+
+  for (const workspaceFolder of workspaceFolders) {
+    const manager = await prepareFsManager(workspaceFolder.uri.fsPath);
+    await cleanCacheQuietly(manager);
+  }
+}
+
+async function pickWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
+  const activeEditor = vscode.window.activeTextEditor;
+  if (activeEditor) {
+    const activeWorkspace = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+    if (activeWorkspace) {
+      return activeWorkspace;
+    }
+  }
+
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  if (workspaceFolders.length <= 1) {
+    return workspaceFolders[0];
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    workspaceFolders.map(folder => ({
+      label: folder.name,
+      description: folder.uri.fsPath,
+      folder,
+    })),
+    { placeHolder: 'Select workspace cache to clean' }
+  );
+
+  return choice?.folder;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function isMarkdownUri(uri: vscode.Uri): boolean {
@@ -132,6 +245,7 @@ function handleTranslationError(error: unknown): void {
 export function activate(context: vscode.ExtensionContext) {
   console.log('Rosetta Mark extension is now active');
 
+  extensionContext = context;
   configManager = new ConfigManager(context);
 
   // Create status bar item
@@ -147,6 +261,8 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  void runStartupCacheMaintenance();
 
   // Set API Key command
   const setApiKeyCommand = vscode.commands.registerCommand('rosettaMark.setApiKey', async () => {
@@ -243,7 +359,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
+    const currentFsManager = await prepareFsManager(workspaceFolder.uri.fsPath);
     const sourcePath = editor.document.uri.fsPath;
     const content = editor.document.getText();
     const configSignature = configManager.getConfigSignature();
@@ -262,6 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
         const previewMode = config.get<PreviewMode>('previewMode', 'preview');
 
         await openTranslatedDocument(translationPath, previewMode);
+        await currentFsManager.getExistingTranslation(sourcePath, configSignature);
         vscode.window.showInformationMessage('Translation is up to date!');
         return;
       }
@@ -335,6 +452,7 @@ export function activate(context: vscode.ExtensionContext) {
           const previewMode = vsConfig.get<PreviewMode>('previewMode', 'preview');
 
           await openTranslatedDocument(translationPath, previewMode);
+          await cleanCacheQuietly(currentFsManager, [translationPath]);
 
           let message = 'Translation completed!';
           if (translationResult.reusedParagraphs > 0) {
@@ -408,16 +526,19 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // Filter out translation files
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      if (!vscode.workspace.workspaceFolders?.length) {
         vscode.window.showErrorMessage('Please open a workspace folder first');
         return;
       }
 
-      const currentFsManager = getOrCreateFsManager(workspaceFolder.uri.fsPath);
-      filesToTranslate = filesToTranslate.filter(
-        f => !currentFsManager.isTranslationFile(f.fsPath)
-      );
+      const sourceFiles: vscode.Uri[] = [];
+      for (const file of filesToTranslate) {
+        const fileFsManager = await getFsManagerForUri(file);
+        if (fileFsManager && !fileFsManager.isTranslationFile(file.fsPath)) {
+          sourceFiles.push(file);
+        }
+      }
+      filesToTranslate = sourceFiles;
 
       if (filesToTranslate.length === 0) {
         vscode.window.showInformationMessage('No source Markdown files found to translate');
@@ -475,9 +596,15 @@ export function activate(context: vscode.ExtensionContext) {
               );
 
               try {
+                const fileFsManager = await getFsManagerForUri(fileUri);
+                if (!fileFsManager) {
+                  errorCount++;
+                  continue;
+                }
+
                 const content = await fs.readFile(fileUri.fsPath, 'utf-8');
                 const configSignature = configManager.getConfigSignature();
-                const needsTranslation = await currentFsManager.needsTranslation(
+                const needsTranslation = await fileFsManager.needsTranslation(
                   fileUri.fsPath,
                   content,
                   configSignature
@@ -488,8 +615,8 @@ export function activate(context: vscode.ExtensionContext) {
                   continue;
                 }
 
-                const existingMetadata = await currentFsManager.getParagraphMapping(
-                  currentFsManager.getTranslationPath(fileUri.fsPath, configSignature)
+                const existingMetadata = await fileFsManager.getParagraphMapping(
+                  fileFsManager.getTranslationPath(fileUri.fsPath, configSignature)
                 );
 
                 const result = await engine.translateWithExisting(
@@ -498,7 +625,7 @@ export function activate(context: vscode.ExtensionContext) {
                   { signal }
                 );
 
-                await currentFsManager.saveTranslationWithMapping(
+                const translationPath = await fileFsManager.saveTranslationWithMapping(
                   fileUri.fsPath,
                   content,
                   result.translatedText,
@@ -506,6 +633,7 @@ export function activate(context: vscode.ExtensionContext) {
                   existingMetadata?.sourceLanguage,
                   configSignature
                 );
+                await cleanCacheQuietly(fileFsManager, [translationPath]);
 
                 successCount++;
               } catch (error) {
@@ -535,6 +663,62 @@ export function activate(context: vscode.ExtensionContext) {
           `Batch translation completed! Success: ${successCount}, Errors: ${errorCount}`
         );
       }
+    }
+  );
+
+  const cleanTranslationCacheCommand = vscode.commands.registerCommand(
+    'rosettaMark.cleanTranslationCache',
+    async () => {
+      const workspaceFolder = await pickWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('Please open a workspace folder first');
+        return;
+      }
+
+      const manager = await prepareFsManager(workspaceFolder.uri.fsPath);
+      const action = await vscode.window.showQuickPick(
+        [
+          {
+            label: 'Clean Expired Cache',
+            description: 'Use current retention and size settings',
+            value: 'configured' as const,
+          },
+          {
+            label: 'Clear All Workspace Cache',
+            description: 'Delete every cached translation for this workspace',
+            value: 'all' as const,
+          },
+        ],
+        { placeHolder: 'How should Rosetta Mark clean the translation cache?' }
+      );
+
+      if (!action) {
+        return;
+      }
+
+      let result: CacheCleanupResult;
+
+      if (action.value === 'all') {
+        const confirm = await vscode.window.showWarningMessage(
+          `Delete all cached translations for ${workspaceFolder.name}?`,
+          { modal: true },
+          'Delete'
+        );
+
+        if (confirm !== 'Delete') {
+          return;
+        }
+
+        result = await manager.clearCache();
+      } else {
+        result = await manager.cleanCache(getCacheCleanupSettings());
+      }
+
+      vscode.window.showInformationMessage(
+        `Translation cache cleaned. Deleted ${result.deletedFiles} file(s), freed ${formatBytes(
+          result.deletedBytes
+        )}, remaining ${formatBytes(result.remainingBytes)}.`
+      );
     }
   );
 
@@ -603,6 +787,7 @@ export function activate(context: vscode.ExtensionContext) {
     cancelTranslationCommand,
     translateCommand,
     batchTranslateCommand,
+    cleanTranslationCacheCommand,
     translateSelectionCommand
   );
 }

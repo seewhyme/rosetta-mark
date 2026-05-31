@@ -83,6 +83,17 @@ export class ConfigManager {
     };
   }
 
+  getCacheSettings(): {
+    retentionDays: number;
+    maxSizeMB: number;
+  } {
+    const config = vscode.workspace.getConfiguration('rosettaMark');
+    return {
+      retentionDays: this.getConfigValue<number>(config, 'cache.retentionDays', 30),
+      maxSizeMB: this.getConfigValue<number>(config, 'cache.maxSizeMB', 500),
+    };
+  }
+
   getConfigSignature(): string {
     const settings = this.getTranslationSettings();
     const normalizedGlossary = [...settings.glossary]

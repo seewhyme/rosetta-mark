@@ -56,6 +56,12 @@
         "title": "Cancel Translation",
         "category": "Rosetta Mark",
         "icon": "$(close)"
+      },
+      {
+        "command": "rosettaMark.cleanTranslationCache",
+        "title": "Clean Translation Cache",
+        "category": "Rosetta Mark",
+        "icon": "$(trash)"
       }
     ],
     "keybindings": [
@@ -190,6 +196,18 @@
             ]
           },
           "description": "Custom glossary for consistent terminology translation"
+        },
+        "rosettaMark.cache.retentionDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "Number of days to keep unused cached translations. Set to 0 to disable age-based cleanup."
+        },
+        "rosettaMark.cache.maxSizeMB": {
+          "type": "number",
+          "default": 500,
+          "minimum": 0,
+          "description": "Maximum translation cache size per workspace in MB. Set to 0 to disable size-based cleanup."
         }
       }
     }
