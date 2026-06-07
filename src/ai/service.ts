@@ -9,6 +9,7 @@ import {
   TranslationError,
   TranslationErrorCode,
 } from '../types';
+import * as logger from '../logger';
 
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -28,8 +29,6 @@ interface TokenUsageLike {
 
 export class AIService {
   private config: TranslationConfig;
-  private languageCache: Map<string, { language: string; timestamp: number }> = new Map();
-  private readonly LANGUAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
   constructor(config: TranslationConfig) {
     this.config = config;
@@ -219,7 +218,7 @@ export class AIService {
               ? RATE_LIMIT_DELAY_MS
               : RETRY_DELAY_MS * Math.pow(2, attempt);
 
-          console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
+          logger.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
           await this.sleep(delay);
         }
       }
@@ -281,15 +280,7 @@ export class AIService {
     );
   }
 
-  async detectLanguage(content: string, cacheKey?: string): Promise<string> {
-    // Check cache first
-    if (cacheKey) {
-      const cached = this.languageCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < this.LANGUAGE_CACHE_TTL) {
-        return cached.language;
-      }
-    }
-
+  async detectLanguage(content: string): Promise<string> {
     const model = this.getProvider();
 
     const result = await this.withRetry(async () => {
@@ -311,69 +302,7 @@ export class AIService {
       return text.trim();
     });
 
-    // Cache the result
-    if (cacheKey) {
-      this.languageCache.set(cacheKey, {
-        language: result,
-        timestamp: Date.now(),
-      });
-    }
-
     return result;
-  }
-
-  async translateTo(
-    content: string,
-    targetLanguage: string,
-    options?: TranslateOptions
-  ): Promise<TranslationResult> {
-    const { onProgress, signal, glossary } = options || {};
-    const model = this.getProvider();
-    const systemPrompt = this.buildSystemPrompt(targetLanguage, glossary);
-
-    return this.withRetry(
-      async () => {
-        if (onProgress) {
-          let translatedText = '';
-          const { textStream, usage } = await streamText({
-            model,
-            messages: this.buildMessages(systemPrompt, content),
-            abortSignal: signal,
-          });
-
-          for await (const chunk of textStream) {
-            if (signal?.aborted) {
-              throw new TranslationError(
-                'Translation was cancelled.',
-                TranslationErrorCode.CANCELLED
-              );
-            }
-            translatedText += chunk;
-            onProgress(chunk);
-          }
-
-          const usageData = await usage;
-
-          return {
-            translatedText,
-            tokenUsage: this.convertTokenUsage(usageData),
-          };
-        } else {
-          const { text, usage } = await generateText({
-            model,
-            messages: this.buildMessages(systemPrompt, content),
-            abortSignal: signal,
-          });
-
-          return {
-            translatedText: text,
-            tokenUsage: this.convertTokenUsage(usage),
-          };
-        }
-      },
-      DEFAULT_MAX_RETRIES,
-      signal
-    );
   }
 
   async translateParagraphs(
@@ -511,7 +440,4 @@ export class AIService {
     }
   }
 
-  clearLanguageCache(): void {
-    this.languageCache.clear();
-  }
 }

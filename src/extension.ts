@@ -5,12 +5,13 @@ import { ConfigManager } from './config/manager';
 import { CacheCleanupResult, FileSystemManager } from './fs/manager';
 import { TranslationEngine } from './engine/translator';
 import { PreviewMode, TranslationError, TranslationErrorCode, TranslationProgress } from './types';
+import * as logger from './logger';
 
 let configManager: ConfigManager;
 let extensionContext: vscode.ExtensionContext;
 const fsManagers = new Map<string, FileSystemManager>();
 let statusBarItem: vscode.StatusBarItem;
-let currentTranslationController: AbortController | null = null;
+const activeControllers = new Set<AbortController>();
 
 function getStorageRoot(context: vscode.ExtensionContext): string {
   if (context.storageUri) {
@@ -38,7 +39,7 @@ async function prepareFsManager(workspaceRoot: string): Promise<FileSystemManage
   try {
     await manager.migrateLegacyCacheIfNeeded();
   } catch (error) {
-    console.warn('Failed to migrate legacy translation cache:', error);
+    logger.warn('Failed to migrate legacy translation cache');
   }
 
   return manager;
@@ -74,7 +75,7 @@ async function cleanCacheQuietly(
       protectedPaths,
     });
   } catch (error) {
-    console.warn('Failed to clean translation cache:', error);
+    logger.warn('Failed to clean translation cache');
     return null;
   }
 }
@@ -197,7 +198,7 @@ async function openTranslatedDocument(
       }
     }
   } catch (error) {
-    console.error('Preview mode failed, falling back to editor:', error);
+    logger.error('Preview mode failed, falling back to editor', error);
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc, {
       viewColumn: vscode.ViewColumn.Beside,
@@ -239,11 +240,12 @@ function handleTranslationError(error: unknown): void {
     const errorMessage = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Translation failed: ${errorMessage}`);
   }
-  console.error('Translation error:', error);
+  logger.error('Translation error', error);
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('Rosetta Mark extension is now active');
+  logger.initLogger(context);
+  logger.log('Rosetta Mark extension is now active');
 
   extensionContext = context;
   configManager = new ConfigManager(context);
@@ -332,11 +334,11 @@ export function activate(context: vscode.ExtensionContext) {
   const cancelTranslationCommand = vscode.commands.registerCommand(
     'rosettaMark.cancelTranslation',
     () => {
-      if (currentTranslationController) {
-        currentTranslationController.abort();
-        currentTranslationController = null;
-        showIdleStatus();
+      for (const controller of activeControllers) {
+        controller.abort();
       }
+      activeControllers.clear();
+      showIdleStatus();
     }
   );
 
@@ -363,6 +365,8 @@ export function activate(context: vscode.ExtensionContext) {
     const sourcePath = editor.document.uri.fsPath;
     const content = editor.document.getText();
     const configSignature = configManager.getConfigSignature();
+    const controller = new AbortController();
+    activeControllers.add(controller);
 
     try {
       // Check if translation is up to date
@@ -400,9 +404,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
 
-      // Create abort controller for cancellation
-      currentTranslationController = new AbortController();
-      const signal = currentTranslationController.signal;
+      const signal = controller.signal;
 
       await vscode.window.withProgress(
         {
@@ -412,25 +414,30 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async (progress, token) => {
           token.onCancellationRequested(() => {
-            currentTranslationController?.abort();
+            controller.abort();
           });
 
+          let lastReportedPercent = 0;
           const translationResult = await engine.translateWithExisting(
             content,
             existingMetadata?.paragraphs || [],
             {
               signal,
               onProgress: (p: TranslationProgress) => {
-                const percentage = Math.round((p.current / p.total) * 100);
+                const newPercent = Math.round((p.current / p.total) * 100);
                 updateStatusBar(
-                  `$(sync~spin) Translating ${percentage}%`,
+                  `$(sync~spin) Translating ${newPercent}%`,
                   `${p.message}\nClick to cancel`,
                   'rosettaMark.cancelTranslation'
                 );
-                progress.report({
-                  message: p.message,
-                  increment: 100 / p.total,
-                });
+                const increment = newPercent - lastReportedPercent;
+                lastReportedPercent = newPercent;
+                if (increment > 0) {
+                  progress.report({
+                    message: p.message,
+                    increment,
+                  });
+                }
               },
             }
           );
@@ -468,7 +475,7 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (error) {
       handleTranslationError(error);
     } finally {
-      currentTranslationController = null;
+      activeControllers.delete(controller);
       showIdleStatus();
     }
   });
@@ -555,8 +562,9 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      currentTranslationController = new AbortController();
-      const signal = currentTranslationController.signal;
+      const batchController = new AbortController();
+      activeControllers.add(batchController);
+      const signal = batchController.signal;
 
       let successCount = 0;
       let errorCount = 0;
@@ -570,7 +578,7 @@ export function activate(context: vscode.ExtensionContext) {
           },
           async (progress, token) => {
             token.onCancellationRequested(() => {
-              currentTranslationController?.abort();
+              batchController.abort();
             });
 
             const config = await configManager.getConfig();
@@ -643,14 +651,14 @@ export function activate(context: vscode.ExtensionContext) {
                 ) {
                   break;
                 }
-                console.error(`Error translating ${fileName}:`, error);
+                logger.error(`Error translating ${fileName}`, error);
                 errorCount++;
               }
             }
           }
         );
       } finally {
-        currentTranslationController = null;
+        activeControllers.delete(batchController);
         showIdleStatus();
       }
 
@@ -739,12 +747,12 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const selectedText = editor.document.getText(selection);
+      const selectionController = new AbortController();
+      activeControllers.add(selectionController);
 
       try {
         const config = await configManager.getConfig();
         const engine = new TranslationEngine(config);
-
-        currentTranslationController = new AbortController();
 
         await vscode.window.withProgress(
           {
@@ -754,7 +762,7 @@ export function activate(context: vscode.ExtensionContext) {
           },
           async (progress, token) => {
             token.onCancellationRequested(() => {
-              currentTranslationController?.abort();
+              selectionController.abort();
             });
 
             updateStatusBar(
@@ -776,7 +784,7 @@ export function activate(context: vscode.ExtensionContext) {
       } catch (error) {
         handleTranslationError(error);
       } finally {
-        currentTranslationController = null;
+        activeControllers.delete(selectionController);
         showIdleStatus();
       }
     }
@@ -793,8 +801,8 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  if (currentTranslationController) {
-    currentTranslationController.abort();
+  for (const controller of activeControllers) {
+    controller.abort();
   }
-  console.log('Rosetta Mark extension is now deactivated');
+  activeControllers.clear();
 }

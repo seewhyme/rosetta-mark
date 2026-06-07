@@ -13,6 +13,11 @@ export interface TranslationConfig {
   maxBatchTokens?: number;
 }
 
+export type ModelSettings = Omit<TranslationConfig, 'apiKey'>;
+export interface Credentials {
+  apiKey: string;
+}
+
 export interface TranslationResult {
   translatedText: string;
   tokenUsage?: {

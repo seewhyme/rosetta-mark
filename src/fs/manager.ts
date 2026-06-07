@@ -39,6 +39,7 @@ export class FileSystemManager {
   private metadataPath: string;
   private legacyTranslationDir: string;
   private migrationMarkerPath: string;
+  private metadataWriteChain: Promise<void> = Promise.resolve();
 
   constructor(workspaceRoot: string, storageRoot: string) {
     this.workspaceRoot = workspaceRoot;
@@ -122,6 +123,24 @@ export class FileSystemManager {
   private async writeExtendedMetadata(metadata: ExtendedMetadata): Promise<void> {
     await this.ensureDir(this.translationDir);
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+  }
+
+  private async queueMetadataWrite(fn: () => Promise<void>): Promise<void> {
+    const prev = this.metadataWriteChain;
+    let resolve: () => void;
+    let reject: (err: unknown) => void;
+    this.metadataWriteChain = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    await prev;
+    try {
+      await fn();
+      resolve!();
+    } catch (err) {
+      reject!(err);
+      throw err;
+    }
   }
 
   private async getFileSize(filePath: string): Promise<number> {
@@ -276,17 +295,19 @@ export class FileSystemManager {
   }
 
   private async markTranslationAccessed(translationPath: string): Promise<void> {
-    const extended = await this.readExtendedMetadata();
-    const relativeTranslationPath = path.relative(this.translationDir, translationPath);
-    const metadata = extended.translations[relativeTranslationPath];
+    return this.queueMetadataWrite(async () => {
+      const extended = await this.readExtendedMetadata();
+      const relativeTranslationPath = path.relative(this.translationDir, translationPath);
+      const metadata = extended.translations[relativeTranslationPath];
 
-    if (!metadata) {
-      return;
-    }
+      if (!metadata) {
+        return;
+      }
 
-    metadata.lastAccessedAt = Date.now();
-    metadata.sizeBytes = await this.getFileSize(translationPath);
-    await this.writeExtendedMetadata(extended);
+      metadata.lastAccessedAt = Date.now();
+      metadata.sizeBytes = await this.getFileSize(translationPath);
+      await this.writeExtendedMetadata(extended);
+    });
   }
 
   getTranslationPath(sourcePath: string, configSignature: string = 'default'): string {
@@ -403,23 +424,26 @@ export class FileSystemManager {
 
     const now = Date.now();
     const hash = this.calculateHash(content);
-    const extended = await this.readExtendedMetadata();
-    const relativePath = path.relative(this.workspaceRoot, sourcePath);
-    const cacheKey = this.getCacheKey(sourcePath, configSignature);
-    const relativeTranslationPath = path.relative(this.translationDir, translationPath);
 
-    extended.hashes[cacheKey] = hash;
-    extended.translations[relativeTranslationPath] = {
-      sourceHash: hash,
-      sourcePath: relativePath,
-      configSignature,
-      paragraphs: [],
-      savedAt: now,
-      lastAccessedAt: now,
-      sizeBytes: await this.getFileSize(translationPath),
-    };
+    await this.queueMetadataWrite(async () => {
+      const extended = await this.readExtendedMetadata();
+      const relativePath = path.relative(this.workspaceRoot, sourcePath);
+      const cacheKey = this.getCacheKey(sourcePath, configSignature);
+      const relativeTranslationPath = path.relative(this.translationDir, translationPath);
 
-    await this.writeExtendedMetadata(extended);
+      extended.hashes[cacheKey] = hash;
+      extended.translations[relativeTranslationPath] = {
+        sourceHash: hash,
+        sourcePath: relativePath,
+        configSignature,
+        paragraphs: [],
+        savedAt: now,
+        lastAccessedAt: now,
+        sizeBytes: await this.getFileSize(translationPath),
+      };
+
+      await this.writeExtendedMetadata(extended);
+    });
 
     return translationPath;
   }
@@ -443,24 +467,27 @@ export class FileSystemManager {
 
     const now = Date.now();
     const hash = this.calculateHash(content);
-    const extended = await this.readExtendedMetadata();
-    const relativePath = path.relative(this.workspaceRoot, sourcePath);
-    const cacheKey = this.getCacheKey(sourcePath, configSignature);
-    const relativeTranslationPath = path.relative(this.translationDir, translationPath);
 
-    extended.hashes[cacheKey] = hash;
-    extended.translations[relativeTranslationPath] = {
-      sourceHash: hash,
-      sourcePath: relativePath,
-      configSignature,
-      sourceLanguage,
-      paragraphs,
-      savedAt: now,
-      lastAccessedAt: now,
-      sizeBytes: await this.getFileSize(translationPath),
-    };
+    await this.queueMetadataWrite(async () => {
+      const extended = await this.readExtendedMetadata();
+      const relativePath = path.relative(this.workspaceRoot, sourcePath);
+      const cacheKey = this.getCacheKey(sourcePath, configSignature);
+      const relativeTranslationPath = path.relative(this.translationDir, translationPath);
 
-    await this.writeExtendedMetadata(extended);
+      extended.hashes[cacheKey] = hash;
+      extended.translations[relativeTranslationPath] = {
+        sourceHash: hash,
+        sourcePath: relativePath,
+        configSignature,
+        sourceLanguage,
+        paragraphs,
+        savedAt: now,
+        lastAccessedAt: now,
+        sizeBytes: await this.getFileSize(translationPath),
+      };
+
+      await this.writeExtendedMetadata(extended);
+    });
 
     return translationPath;
   }
@@ -469,17 +496,21 @@ export class FileSystemManager {
    * 获取段落映射
    */
   async getParagraphMapping(translationPath: string): Promise<TranslationMetadata | null> {
+    await this.queueMetadataWrite(async () => {
+      const extended = await this.readExtendedMetadata();
+      const relativeTranslationPath = path.relative(this.translationDir, translationPath);
+      const metadata = extended.translations[relativeTranslationPath];
+
+      if (metadata) {
+        metadata.lastAccessedAt = Date.now();
+        metadata.sizeBytes = await this.getFileSize(translationPath);
+        await this.writeExtendedMetadata(extended);
+      }
+    });
+
     const extended = await this.readExtendedMetadata();
     const relativeTranslationPath = path.relative(this.translationDir, translationPath);
-    const metadata = extended.translations[relativeTranslationPath] || null;
-
-    if (metadata) {
-      metadata.lastAccessedAt = Date.now();
-      metadata.sizeBytes = await this.getFileSize(translationPath);
-      await this.writeExtendedMetadata(extended);
-    }
-
-    return metadata;
+    return extended.translations[relativeTranslationPath] || null;
   }
 
   /**
@@ -490,20 +521,22 @@ export class FileSystemManager {
     paragraphs: ParagraphMapping[],
     newSourceContent: string
   ): Promise<void> {
-    const extended = await this.readExtendedMetadata();
-    const relativeTranslationPath = path.relative(this.translationDir, translationPath);
-    const metadata = extended.translations[relativeTranslationPath];
+    return this.queueMetadataWrite(async () => {
+      const extended = await this.readExtendedMetadata();
+      const relativeTranslationPath = path.relative(this.translationDir, translationPath);
+      const metadata = extended.translations[relativeTranslationPath];
 
-    if (metadata) {
-      const sourcePath = path.join(this.workspaceRoot, metadata.sourcePath);
-      metadata.paragraphs = paragraphs;
-      metadata.sourceHash = this.calculateHash(newSourceContent);
-      metadata.lastAccessedAt = Date.now();
-      metadata.sizeBytes = await this.getFileSize(translationPath);
-      extended.hashes[this.getCacheKey(sourcePath, metadata.configSignature ?? 'default')] =
-        metadata.sourceHash;
-      await this.writeExtendedMetadata(extended);
-    }
+      if (metadata) {
+        const sourcePath = path.join(this.workspaceRoot, metadata.sourcePath);
+        metadata.paragraphs = paragraphs;
+        metadata.sourceHash = this.calculateHash(newSourceContent);
+        metadata.lastAccessedAt = Date.now();
+        metadata.sizeBytes = await this.getFileSize(translationPath);
+        extended.hashes[this.getCacheKey(sourcePath, metadata.configSignature ?? 'default')] =
+          metadata.sourceHash;
+        await this.writeExtendedMetadata(extended);
+      }
+    });
   }
 
   async getExistingTranslation(

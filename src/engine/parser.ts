@@ -218,17 +218,6 @@ export class MarkdownParser {
   }
 
   /**
-   * 将 Markdown 内容按段落拆分
-   * 段落以空行（两个连续换行符）分隔
-   */
-  splitIntoParagraphs(content: string): string[] {
-    // 使用两个或更多连续换行符作为分隔符
-    const paragraphs = content.split(/\n\n+/);
-    // 过滤掉空段落
-    return paragraphs.filter(p => p.trim().length > 0);
-  }
-
-  /**
    * 智能分割成段落，并计算每个段落的 hash
    */
   splitIntoParagraphsWithHash(content: string): ParsedParagraph[] {
@@ -274,20 +263,6 @@ export class MarkdownParser {
   }
 
   /**
-   * 将段落数组合并为 Markdown 内容
-   */
-  joinParagraphs(paragraphs: string[]): string {
-    return paragraphs.join('\n\n');
-  }
-
-  /**
-   * 合并 ParsedParagraph 数组
-   */
-  joinParsedParagraphs(paragraphs: ParsedParagraph[]): string {
-    return paragraphs.map(p => p.content).join('\n\n');
-  }
-
-  /**
    * 计算内容的 hash
    */
   calculateHash(content: string): string {
@@ -302,70 +277,4 @@ export class MarkdownParser {
     return Math.ceil(content.length / 4);
   }
 
-  /**
-   * 检查内容是否超过大小限制
-   */
-  isContentTooLarge(content: string, maxTokens: number = 100000): boolean {
-    return this.estimateTokens(content) > maxTokens;
-  }
-
-  /**
-   * 将大文档分块
-   */
-  chunkContent(content: string, maxTokensPerChunk: number = 4000): string[] {
-    const paragraphs = this.splitIntoParagraphs(content);
-    const chunks: string[] = [];
-    let currentChunk: string[] = [];
-    let currentTokens = 0;
-
-    for (const paragraph of paragraphs) {
-      const paragraphTokens = this.estimateTokens(paragraph);
-
-      if (paragraphTokens > maxTokensPerChunk) {
-        // 段落本身太大，需要进一步分割
-        if (currentChunk.length > 0) {
-          chunks.push(currentChunk.join('\n\n'));
-          currentChunk = [];
-          currentTokens = 0;
-        }
-        // 按句子分割大段落
-        const sentences = paragraph.split(/(?<=[.!?。！？])\s+/);
-        let sentenceChunk: string[] = [];
-        let sentenceTokens = 0;
-
-        for (const sentence of sentences) {
-          const tokens = this.estimateTokens(sentence);
-          if (sentenceTokens + tokens > maxTokensPerChunk) {
-            if (sentenceChunk.length > 0) {
-              chunks.push(sentenceChunk.join(' '));
-              sentenceChunk = [];
-              sentenceTokens = 0;
-            }
-          }
-          sentenceChunk.push(sentence);
-          sentenceTokens += tokens;
-        }
-
-        if (sentenceChunk.length > 0) {
-          chunks.push(sentenceChunk.join(' '));
-        }
-        continue;
-      }
-
-      if (currentTokens + paragraphTokens > maxTokensPerChunk) {
-        chunks.push(currentChunk.join('\n\n'));
-        currentChunk = [];
-        currentTokens = 0;
-      }
-
-      currentChunk.push(paragraph);
-      currentTokens += paragraphTokens;
-    }
-
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk.join('\n\n'));
-    }
-
-    return chunks;
-  }
 }

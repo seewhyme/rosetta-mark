@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TranslationError, TranslationErrorCode } from '../types';
+import * as logger from '../logger';
 
 export class ErrorHandler {
   /**
@@ -26,8 +27,7 @@ export class ErrorHandler {
       vscode.window.showErrorMessage(errorMessage);
     }
 
-    // Log detailed error for debugging
-    console.error(`[Rosetta Mark] Error: ${translationError.message}`, translationError.cause);
+    logger.error(`Error: ${translationError.message}`);
   }
 
   private static createTranslationError(error: unknown): TranslationError {

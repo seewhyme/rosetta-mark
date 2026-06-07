@@ -8,33 +8,6 @@ suite('MarkdownParser Test Suite', () => {
     parser = new MarkdownParser();
   });
 
-  suite('splitIntoParagraphs', () => {
-    test('should split content by empty lines', () => {
-      const content = 'First paragraph\n\nSecond paragraph\n\nThird paragraph';
-      const result = parser.splitIntoParagraphs(content);
-
-      assert.strictEqual(result.length, 3);
-      assert.strictEqual(result[0], 'First paragraph');
-      assert.strictEqual(result[1], 'Second paragraph');
-      assert.strictEqual(result[2], 'Third paragraph');
-    });
-
-    test('should handle multiple empty lines', () => {
-      const content = 'First\n\n\n\nSecond';
-      const result = parser.splitIntoParagraphs(content);
-
-      assert.strictEqual(result.length, 2);
-    });
-
-    test('should filter empty paragraphs', () => {
-      const content = '\n\nFirst\n\n\n\n';
-      const result = parser.splitIntoParagraphs(content);
-
-      assert.strictEqual(result.length, 1);
-      assert.strictEqual(result[0], 'First');
-    });
-  });
-
   suite('splitIntoParagraphsWithHash', () => {
     test('should identify frontmatter blocks separately', () => {
       const content = '---\ntitle: Test\nlang: en\n---\n\nParagraph';
@@ -144,15 +117,6 @@ suite('MarkdownParser Test Suite', () => {
     });
   });
 
-  suite('joinParagraphs', () => {
-    test('should join paragraphs with double newlines', () => {
-      const paragraphs = ['First', 'Second', 'Third'];
-      const result = parser.joinParagraphs(paragraphs);
-
-      assert.strictEqual(result, 'First\n\nSecond\n\nThird');
-    });
-  });
-
   suite('estimateTokens', () => {
     test('should estimate token count', () => {
       const content = 'Hello world'; // 11 characters
@@ -166,31 +130,4 @@ suite('MarkdownParser Test Suite', () => {
     });
   });
 
-  suite('isContentTooLarge', () => {
-    test('should return false for small content', () => {
-      const content = 'Small content';
-      assert.strictEqual(parser.isContentTooLarge(content), false);
-    });
-
-    test('should return true for large content with low limit', () => {
-      const content = 'Some content here';
-      assert.strictEqual(parser.isContentTooLarge(content, 1), true);
-    });
-  });
-
-  suite('chunkContent', () => {
-    test('should return single chunk for small content', () => {
-      const content = 'Small paragraph';
-      const chunks = parser.chunkContent(content, 1000);
-
-      assert.strictEqual(chunks.length, 1);
-    });
-
-    test('should split into multiple chunks for large content', () => {
-      const paragraphs = Array(10).fill('This is a test paragraph with some content.').join('\n\n');
-      const chunks = parser.chunkContent(paragraphs, 50);
-
-      assert.ok(chunks.length > 1, 'Should have multiple chunks');
-    });
-  });
 });

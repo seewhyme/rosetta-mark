@@ -87,14 +87,14 @@
       "editor/title": [
         {
           "command": "rosettaMark.translate",
-          "when": "(resourceLangId == markdown || resourceExtname == .md) && !resourcePath =~ /\\.rosetta-mark/",
+          "when": "resourceLangId == markdown || resourceExtname == .md",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "command": "rosettaMark.translate",
-          "when": "(resourceLangId == markdown || resourceExtname == .md) && !resourcePath =~ /\\.rosetta-mark/",
+          "when": "resourceLangId == markdown || resourceExtname == .md",
           "group": "1_modification"
         },
         {

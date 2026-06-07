@@ -8,12 +8,6 @@ import {
   TranslationProgress,
 } from '../types';
 
-export interface TranslationWithMapping {
-  result: TranslationResult;
-  paragraphs: ParagraphMapping[];
-  sourceLanguage?: string;
-}
-
 export interface IncrementalTranslateOptions {
   signal?: AbortSignal;
   onProgress?: (progress: TranslationProgress) => void;
@@ -170,47 +164,6 @@ export class TranslationEngine {
       changedParagraphs: paragraphsToTranslateCount,
       reusedParagraphs: reusedCount,
       tokenUsage: totalTokenUsage.total > 0 ? totalTokenUsage : undefined,
-    };
-  }
-
-  /**
-   * 翻译并返回段落映射（兼容旧接口）
-   */
-  async translateWithMapping(
-    content: string,
-    onProgress?: (chunk: string) => void,
-    signal?: AbortSignal
-  ): Promise<TranslationWithMapping> {
-    // 使用增量翻译
-    let accumulatedText = '';
-    const result = await this.translateIncremental(content, {
-      signal,
-      onProgress: progress => {
-        if (progress.phase === 'translating' && onProgress) {
-          const newText = progress.message;
-          if (newText !== accumulatedText) {
-            onProgress(newText.slice(accumulatedText.length));
-            accumulatedText = newText;
-          }
-        }
-      },
-    });
-
-    // 检测原文语言
-    let sourceLanguage: string | undefined;
-    try {
-      sourceLanguage = await this.aiService.detectLanguage(content);
-    } catch {
-      // 语言检测失败不影响主流程
-    }
-
-    return {
-      result: {
-        translatedText: result.translatedText,
-        tokenUsage: result.tokenUsage,
-      },
-      paragraphs: result.paragraphs,
-      sourceLanguage,
     };
   }
 
