@@ -1,5 +1,51 @@
 # Change Log
 
+## [0.1.5] - 2026-06-08
+
+### Changed
+- Refreshed Marketplace README to match the current feature set and configuration options.
+- Documented OpenRouter support, cache management, workspace/global API key storage, cancellation, and performance tuning.
+
+## [0.1.4] - 2026-06-08
+
+### Added
+- Added OpenRouter as a built-in provider using the OpenAI-compatible API path.
+- Added configurable request concurrency with `rosettaMark.maxConcurrency`.
+- Added configurable paragraph batch size with `rosettaMark.maxBatchTokens`.
+- Added cache retention and max-size settings.
+- Added `Rosetta Mark: Clean Translation Cache` for cleaning expired cache or clearing workspace cache.
+- Added translation cancellation with progress notification cancellation, status bar action, and Escape keybinding.
+
+### Changed
+- Moved translation cache from project-local `.rosetta-mark/` into VS Code workspace storage.
+- Translation cache is now isolated by provider/model/base URL/target language/glossary signature.
+- Existing project-local `.rosetta-mark/` cache is migrated into VS Code storage on first use.
+- Batch translation skips generated translation files and reuses paragraph cache when possible.
+
+### Fixed
+- Improved cache cleanup for missing source files and least-recently-used entries.
+- Improved status bar feedback during active translation and batch translation.
+
+## [0.1.3] - 2026-05-27
+
+### Added
+- Added workspace-scoped API key storage alongside global user-level keys.
+- Added API key validation before saving when the selected provider can be reached.
+- Added provider/model status bar indicator with quick translate action.
+
+### Fixed
+- Improved error handling for authentication, rate limits, network failures, cancellation, and oversized files.
+
+## [0.1.2] - 2026-05-27
+
+### Added
+- Added paragraph batching for faster large-document translation.
+- Added paragraph-level incremental translation reuse across edits.
+- Added token usage reporting when providers return usage metadata.
+
+### Changed
+- Improved Markdown preservation for code blocks, inline literals, frontmatter, placeholders, and HTML/XML tags.
+
 ## [0.1.1] - 2026-01-21
 
 ### Fixed

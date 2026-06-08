@@ -1,17 +1,20 @@
 # Rosetta Mark
 
-AI-powered Markdown translation VS Code extension with context awareness and incremental updates.
+AI-powered Markdown translation for VS Code, built for docs that change over time. Rosetta Mark preserves Markdown structure, reuses unchanged paragraph translations, and keeps generated translations in VS Code storage instead of writing cache files into your project.
 
 ![Rosetta Mark Demo](images/demo.gif)
 
 ## Features
 
-- **Multi-Provider Support**: Works with OpenAI, Google Gemini, Anthropic Claude, and Ollama (local)
-- **BYOK (Bring Your Own Key)**: Your API keys stay secure in VS Code's SecretStorage
-- **Context-Aware Translation**: Preserves code blocks, frontmatter, and formatting
-- **Incremental Translation**: Hash-based caching to avoid re-translating unchanged documents
-- **Split View Preview**: Automatically opens translation side-by-side with source
-- **Streaming Support**: Real-time progress feedback during translation
+- **Multi-provider support**: OpenAI, Google Gemini, Anthropic Claude, Ollama, and OpenRouter.
+- **Bring your own key**: API keys are stored in VS Code SecretStorage, globally or per workspace.
+- **Validated setup**: Rosetta Mark checks the API key before saving when the provider is reachable.
+- **Markdown-aware translation**: Preserves frontmatter, code blocks, inline literals, placeholders, HTML/XML tags, and Markdown syntax.
+- **Incremental updates**: Reuses unchanged paragraph translations so small edits to long documents finish quickly.
+- **Fast large-file mode**: Configurable request batching and concurrency for high-throughput models.
+- **Workspace-safe cache**: Translation cache lives in VS Code workspace storage, isolated by provider/model/language/glossary settings.
+- **Batch and selection workflows**: Translate one file, a selection, selected files, a folder, or all Markdown files in a workspace.
+- **Progress and cancellation**: Status bar feedback, progress notifications, and Escape/cancel support for active jobs.
 
 ## Setup
 
@@ -26,7 +29,12 @@ Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and run:
 ```
 Rosetta Mark: Set API Key
 ```
-Enter your API key. It will be securely stored in VS Code's SecretStorage.
+Choose where to store it:
+
+- **Global (User)**: available to all projects.
+- **Workspace**: only available to the current VS Code workspace.
+
+Rosetta Mark validates the key before saving when the selected provider can be reached. If validation cannot run because of a network issue, the key is still saved.
 
 ### 3. Configure Global Settings
 
@@ -42,12 +50,14 @@ You can configure Rosetta Mark globally (for all projects) in two ways:
 2. Search for "Rosetta Mark" in the search bar
 
 3. Configure your preferences:
-   - **Provider**: Choose your AI provider (OpenAI, Google, Anthropic, Ollama)
+   - **Provider**: Choose your AI provider (OpenAI, Google, Anthropic, Ollama, OpenRouter)
    - **Model**: Set the model name
+   - **Base URL**: Set a proxy, OpenAI-compatible endpoint, or local Ollama endpoint
    - **Target Language**: Set your default translation language
    - **Preview Mode**: Choose how to display translations
-   - **Max Concurrency**: Control parallel translation speed
+   - **Max Concurrency / Max Batch Tokens**: Tune speed and rate-limit behavior
    - **Glossary**: Add custom terminology mappings
+   - **Cache Retention / Cache Size**: Control automatic translation cache cleanup
 
 #### Option B: settings.json (Advanced)
 
@@ -62,6 +72,9 @@ You can configure Rosetta Mark globally (for all projects) in two ways:
   "rosettaMark.targetLanguage": "zh-CN",
   "rosettaMark.previewMode": "preview",
   "rosettaMark.maxConcurrency": 3,
+  "rosettaMark.maxBatchTokens": 4000,
+  "rosettaMark.cache.retentionDays": 30,
+  "rosettaMark.cache.maxSizeMB": 500,
   "rosettaMark.glossary": [
     {
       "source": "API",
@@ -117,17 +130,18 @@ Add custom terminology to ensure consistent translations:
 ### Quick Start
 
 1. Open a Markdown file
-2. Click the globe icon 🌐 in the editor toolbar, or
+2. Click the globe icon in the editor toolbar, or
 3. Use keyboard shortcut: `Cmd+Shift+T` (Mac) / `Ctrl+Shift+T` (Windows/Linux)
 4. Or open Command Palette and run `Rosetta Mark: Translate Markdown`
 
 ### Translation Process
 
 The extension will:
-- ✅ Check if translation is needed (using file hash)
-- 🔄 Translate the content while preserving formatting
-- 💾 Save to VS Code's workspace storage
-- 👀 Open the translation in a split view
+- Check whether the current source/configuration already has an up-to-date translation.
+- Reuse unchanged paragraph translations from the cache.
+- Translate changed content while preserving Markdown formatting.
+- Save the generated translation under VS Code workspace storage.
+- Open the translation beside the source file, depending on `rosettaMark.previewMode`.
 
 ![Split View Preview](images/screenshot-preview.png)
 
@@ -136,6 +150,21 @@ The extension will:
 **Batch Translation**: Right-click on a folder in Explorer and select "Batch Translate" to translate multiple files at once.
 
 **Selection Translation**: Select any text and use `Cmd+Alt+T` (Mac) / `Ctrl+Alt+T` (Windows/Linux) to translate only the selected portion.
+
+**Cancel Translation**: Use the progress notification cancel button, press `Escape`, or run `Rosetta Mark: Cancel Translation`.
+
+**Clean Translation Cache**: Run `Rosetta Mark: Clean Translation Cache` to remove expired cache entries or clear all cached translations for the selected workspace.
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `Rosetta Mark: Translate Markdown` | Translate the active Markdown file |
+| `Rosetta Mark: Translate Selection` | Replace the selected text with its translation |
+| `Rosetta Mark: Batch Translate` | Translate selected files, a folder, or all Markdown files in the workspace |
+| `Rosetta Mark: Set API Key` | Save a global or workspace API key |
+| `Rosetta Mark: Cancel Translation` | Cancel active translation work |
+| `Rosetta Mark: Clean Translation Cache` | Clean expired cache or clear workspace cache |
 
 ## Translation Cache
 
@@ -177,6 +206,14 @@ If an old project-local `.rosetta-mark/` cache exists, Rosetta Mark copies it in
   "rosettaMark.provider": "ollama",
   "rosettaMark.model": "llama3.2",
   "rosettaMark.baseUrl": "http://localhost:11434/v1"
+}
+```
+
+### OpenRouter
+```json
+{
+  "rosettaMark.provider": "openrouter",
+  "rosettaMark.model": "google/gemini-3.1-flash-lite:nitro"
 }
 ```
 
@@ -226,9 +263,9 @@ A 54 KB / 190-paragraph README translated end-to-end (155 paragraphs needing tra
 - Run `Rosetta Mark: Set API Key` from Command Palette
 - Make sure you're using the correct API key for your selected provider
 
-**Translation fails with timeout**
-- Try increasing the timeout in settings (coming soon)
-- For large files, use batch translation with lower concurrency
+**Translation is slow on large files**
+- Try `maxConcurrency=8` and `maxBatchTokens=2500–3000` on fast cloud models
+- For local Ollama, use `maxConcurrency=1–2` and smaller batches
 
 **Formatting lost after translation**
 - Make sure your markdown is valid
@@ -236,9 +273,14 @@ A 54 KB / 190-paragraph README translated end-to-end (155 paragraphs needing tra
 - Report formatting issues on GitHub
 
 **Rate limit errors**
-- Reduce `maxConcurrency` setting to 1 or 2
+- Reduce `maxConcurrency` to 2 or 3
 - Wait a few minutes before retrying
-- Consider using a different provider
+- Keep `maxBatchTokens` at 4000 or higher to reduce the number of requests
+
+**Old `.rosetta-mark/` folder still exists**
+- New translations are stored in VS Code workspace storage
+- Rosetta Mark copies an old project-local cache into VS Code storage on first use
+- The old folder is not deleted automatically
 
 ## Development
 
@@ -262,16 +304,12 @@ pnpm run lint
 pnpm run format
 ```
 
-## Contributing
-
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
-
 ## License
 
 MIT - see [LICENSE](LICENSE) file for details
 
 ---
 
-**Made with ❤️ by [seewhyme](https://github.com/seewhyme)**
+Made by [seewhyme](https://github.com/seewhyme).
 
-*If this extension helps you, please consider [⭐ starring the repo](https://github.com/seewhyme/rosetta-mark)!*
+*If this extension helps you, please consider [starring the repo](https://github.com/seewhyme/rosetta-mark).*
